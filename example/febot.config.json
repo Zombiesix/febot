@@ -1,0 +1,22 @@
+{
+  "repoRoot": "./gitlab",
+  "repos": [],
+  "branches": {
+    "candidates": ["dev"],
+    "default": "dev"
+  },
+  "jenkins": {
+    "base": "",
+    "jobs": {}
+  },
+  "teamwork": {
+    "base": "",
+    "username": "",
+    "userTag": "",
+    "tableId": "",
+    "autograph": "",
+    "cookie": "",
+    "users": []
+  },
+  "nextDevOrigins": []
+}

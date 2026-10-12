@@ -1,0 +1,34 @@
+test
+archive
+node_modules/
+
+# 多 Agent 执行过程文成
+docs/requirements/R-*
+
+# 协作平台账号
+.teamwork/auth.txt
+
+# hindsight 配置的模型
+scripts/*.env
+
+# 助手层按目标仓生成的时点快照(可再生:yarn assistant:map <repoRoot>/<仓>)
+docs/assistant/
+
+# 由 yarn setup 从 example/ 生成，每个团队各填各的，不入库
+# 全部锚定仓库根：不带斜杠的规则会按 basename 匹配任意层级，把 example/ 下的同名模板也吞掉
+/febot.config.json
+/tasks.md
+/project-map.md
+/file-lock.md
+/om/data.json
+/.claude/settings.json
+/swagger-mcp-server/services.conf
+
+# 本地数据 / 目标仓克隆 / 缓存
+gitlab/
+om/docs/
+__pycache__/
+.claude/settings.local.json
+
+# 本仓库统一用 yarn v1，npm 生成的锁文件是残留
+package-lock.json

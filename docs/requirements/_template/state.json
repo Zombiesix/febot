@@ -1,0 +1,11 @@
+{
+  "requirement": "{REQUIREMENT_ID}",
+  "tier": "full",
+  "phase": "init",
+  "iteration": 0,
+  "maxIteration": 2,
+  "blockers": [],
+  "questions": [],
+  "lastAgent": null,
+  "updatedAt": "2026-09-22T00:00:00"
+}

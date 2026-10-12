@@ -1,0 +1,3 @@
+loginName=
+password=
+host=https://teamwork.example.com

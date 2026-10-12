@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>发版看板</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .fade-in { animation: fadeIn .18s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+
+  <!-- 顶部居中轻提示 -->
+  <div id="toast" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg"></div>
+
+  <!-- 顶部工具栏 -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+          发版看板
+        </h1>
+        <p id="updatedAt" class="text-xs text-slate-400 mt-0.5"></p>
+      </div>
+
+      <div class="relative flex-1 max-w-xs min-w-[180px]">
+        <input id="searchInput" type="text" placeholder="搜索项目…"
+          class="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50" />
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+      </div>
+
+      <div class="flex gap-2">
+        <button onclick="exportData()" class="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">导出</button>
+        <button id="updateBtn" onclick="updateWeek()" class="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">♻ 一键更新</button>
+        <button onclick="resetData()" class="px-3 py-2 text-sm rounded-lg border border-rose-300 bg-white text-rose-600 hover:bg-rose-50">重置</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 统计栏 -->
+  <div id="statsBar" class="max-w-6xl mx-auto px-4 mt-6 grid grid-cols-2 md:grid-cols-5 gap-3"></div>
+
+  <!-- 本周已完成（一键更新结果） -->
+  <div id="weekWrap" class="max-w-6xl mx-auto px-4 mt-6">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fade-in">
+      <header class="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-200">
+        <div class="flex items-center gap-2">
+          <span id="weekTitle" class="text-sm font-semibold">📋 本周已完成</span>
+          <select id="weekUserSelect" class="text-sm px-2 py-1 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"></select>
+        </div>
+      </header>
+      <div id="weekBody" class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm"></div>
+    </div>
+  </div>
+
+  <!-- 分组看板 -->
+  <main id="board" class="max-w-6xl mx-auto px-4 py-6 space-y-6"></main>
+
+  <!-- 底部 -->
+  <footer class="max-w-6xl mx-auto px-4 pb-10 text-center text-xs text-slate-400">
+    数据保存在 om/data.json（本地生成，不入库）· 需要共享请用「导出」
+  </footer>
+
+  <!-- ================= 弹窗：新增/编辑项目 ================= -->
+  <div id="projectModal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/40" onclick="closeModal('projectModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6 fade-in">
+      <h3 id="projectModalTitle" class="text-lg font-semibold mb-4"></h3>
+      <input type="hidden" id="pfProjectId" />
+      <label class="block text-sm mb-1">项目名 *</label>
+      <input id="pfName" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
+      <label class="block text-sm mb-1">打包状态</label>
+      <select id="pfPackaged" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm bg-white">
+        <option value="todo">未开始</option>
+        <option value="doing">进行中</option>
+        <option value="done">已完成</option>
+      </select>
+      <label class="block text-sm mb-1">当前版本</label>
+      <input id="pfVersion" placeholder="如 4.9.3" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
+      <label class="block text-sm mb-1">进度 / 状态说明</label>
+      <input id="pfStatusText" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
+      <label class="block text-sm mb-1">本周新功能</label>
+      <textarea id="pfFeatures" rows="2" placeholder="新增了什么，多个用逗号/换行分隔" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
+      <label class="block text-sm mb-1">本周修复问题</label>
+      <textarea id="pfFixes" rows="2" placeholder="修复了哪些问题" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
+      <label class="block text-sm mb-1">备注</label>
+      <textarea id="pfRemark" rows="2" class="w-full px-3 py-2 mb-4 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeModal('projectModal')" class="px-4 py-2 text-sm rounded-lg border border-slate-300 hover:bg-slate-50">取消</button>
+        <button onclick="saveProject()" class="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 空状态 ================= -->
+  <div id="emptyState" class="hidden max-w-6xl mx-auto px-4 py-16 text-center text-slate-400">
+    <div class="text-5xl mb-3">🗂️</div>
+    <p class="text-sm">暂无项目：点右上角「♻ 一键更新」拉取本周已完成任务，或点「＋ 新增项目」手工录入。</p>
+  </div>
+
+  <script>
+    const PACKAGED_META = {
+      done:  { label: '已完成', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+      doing: { label: '进行中', cls: 'bg-amber-100 text-amber-700 border-amber-300' },
+      todo:  { label: '未开始', cls: 'bg-slate-200 text-slate-600 border-slate-300' }
+    };
+    const NEXT_STATUS = { todo: 'doing', doing: 'done', done: 'todo' };
+
+    let state = null;
+
+    // 负责人列表来自服务端 /api/config（读 febot.config.json 的 teamwork.users），
+    // 未配置时为空 —— 所有用到的地方都要能容忍空列表。
+    let USERS = [];
+    let currentUser = '';
+    // 默认负责人：优先取地址栏 ?name=，否则回退第一个
+    function initialUser() {
+      try {
+        const n = new URLSearchParams(location.search).get('name');
+        if (n && USERS.includes(n)) return n;
+      } catch (e) { /* ignore */ }
+      return USERS[0] || '';
+    }
+
+    // 返回指定负责人的「本周已完成」；旧数据（currentWeekFinished）仅归并到第一个负责人做兼容
+    function weekDataFor(user) {
+      if (!user) return [];
+      if (state && state.currentWeekByUser && state.currentWeekByUser[user]) return state.currentWeekByUser[user];
+      if (user === USERS[0] && state && state.currentWeekFinished) return state.currentWeekFinished;
+      return [];
+    }
+
+    function initWeekUserSelect() {
+      const sel = document.getElementById('weekUserSelect');
+      if (!USERS.length) {
+        sel.innerHTML = '<option value="">（未配置负责人）</option>';
+        sel.disabled = true;
+        return;
+      }
+      sel.disabled = false;
+      sel.innerHTML = USERS.map(u => `<option value="${u}"${u === currentUser ? ' selected' : ''}>${u}</option>`).join('');
+      sel.addEventListener('change', () => {
+        currentUser = sel.value;
+        render();
+      });
+    }
+
+    // 负责人列表由服务端配置提供；取不到就保持空列表（页面仍可用，只是「一键更新」不可用）
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (Array.isArray(cfg.users) && cfg.users.length) USERS = cfg.users;
+        else if (cfg.defaultUser) USERS = [cfg.defaultUser];
+      } catch (e) { /* 服务未启动或未配置，保持空列表 */ }
+      currentUser = initialUser();
+    }
+
+    // 按用户读取项目的「新功能/修复」；旧数据（features/fixes 共享字段）做兼容兜底
+    function fxFor(p, user) {
+      if (!p) return { features: '', fixes: '' };
+      const buf = p.fxByUser || {};
+      if (buf[user]) return buf[user];
+      if (p.features || p.fixes) return { features: p.features || '', fixes: p.fixes || '' };
+      return { features: '', fixes: '' };
+    }
+
+    async function load() {
+      await loadConfig();
+      try {
+        const res = await fetch('/api/data');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        state = await res.json();
+      } catch (e) {
+        alert('读取 /api/data 失败，请确认已用 node server.js 启动服务。\n' + e.message);
+        state = { projects: [] };
+      }
+      initWeekUserSelect();
+      render();
+    }
+
+    function persist() {
+      fetch('/api/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state)
+      }).catch(e => console.error('save failed', e));
+    }
+
+    function render() {
+      renderStats();
+      renderBoard();
+      renderWeek();
+      const t = state.updatedAt ? new Date(state.updatedAt) : null;
+      document.getElementById('updatedAt').textContent = t
+        ? '上次保存：' + t.toLocaleString('zh-CN')
+        : '';
+      const hasProjects = (state.projects || []).length > 0;
+      document.getElementById('emptyState').classList.toggle('hidden', hasProjects);
+      document.getElementById('board').classList.toggle('hidden', !hasProjects);
+    }
+
+    function renderStats() {
+      let total = 0, done = 0, doing = 0, todo = 0;
+      const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      (state.projects || []).forEach(p => {
+        if (q && !p.name.toLowerCase().includes(q)) return;
+        total++;
+        if (p.packaged === 'done') done++; else if (p.packaged === 'doing') doing++; else todo++;
+      });
+      const cards = [
+        { label: '项目总数', value: total, cls: 'bg-white border-slate-200 text-slate-800' },
+        { label: '已完成', value: done, cls: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+        { label: '进行中', value: doing, cls: 'bg-amber-50 border-amber-200 text-amber-700' },
+        { label: '未开始', value: todo, cls: 'bg-slate-100 border-slate-200 text-slate-500' },
+        { label: '未完成', value: total - done, cls: 'bg-rose-50 border-rose-200 text-rose-600' }
+      ];
+      document.getElementById('statsBar').innerHTML = cards.map(c => `
+        <div class="${c.cls} border rounded-xl px-4 py-3">
+          <div class="text-2xl font-bold">${c.value}</div>
+          <div class="text-xs mt-0.5 opacity-70">${c.label}</div>
+        </div>`).join('');
+    }
+
+    // 聚合项目里所有用户手填的「新功能/修复」，扁平看板按项目展示（与 server.js projectFx 对齐）
+    function fxAggregated(p) {
+      if (!p) return { features: '', fixes: '' };
+      const feats = [], fixs = [];
+      const push = (list, t) => { if (t && !list.includes(t)) list.push(t); };
+      const buf = p.fxByUser || {};
+      if (typeof buf === 'object') {
+        Object.keys(buf).forEach(u => {
+          const b = buf[u] || {};
+          splitList(b.features).forEach(t => push(feats, t));
+          splitList(b.fixes).forEach(t => push(fixs, t));
+        });
+      }
+      if (!feats.length && p.features) splitList(p.features).forEach(t => push(feats, t));
+      if (!fixs.length && p.fixes) splitList(p.fixes).forEach(t => push(fixs, t));
+      return { features: feats.join('\n'), fixes: fixs.join('\n') };
+    }
+
+    function renderBoard() {
+      const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      const container = document.getElementById('board');
+      const projects = (state.projects || []).filter(p => !q || p.name.toLowerCase().includes(q));
+      const rows = projects.length
+        ? projects.map((p, pi) => projectRow(p, pi)).join('')
+        : `<div class="text-sm text-slate-400 py-3 text-center">暂无匹配项目</div>`;
+      container.innerHTML = `
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fade-in">
+          <header class="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold">全部项目</span>
+              <span class="text-xs text-slate-400 bg-white border border-slate-200 rounded-full px-2 py-0.5">${projects.length} 项</span>
+            </div>
+            <button title="新增项目" onclick="openProjectModal(null)" class="text-sm px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-indigo-50">＋ 新增项目</button>
+          </header>
+          <div class="divide-y divide-slate-100">${rows}</div>
+        </section>`;
+    }
+
+    function projectRow(p, pi) {
+      const meta = PACKAGED_META[p.packaged] || PACKAGED_META.todo;
+      const fx = fxAggregated(p);
+      return `
+        <div class="px-5 py-3 flex items-center gap-4 hover:bg-slate-50/70 transition">
+          <div class="flex-1 min-w-0">
+            <div class="font-medium">${escapeHtml(p.name)}</div>
+            ${p.statusText ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.statusText)}</div>` : ''}
+            ${fx.features ? `<div class="text-xs text-emerald-600 mt-0.5"><span class="font-medium">✨新功能</span>：${escapeHtml(fx.features)}</div>` : ''}
+            ${fx.fixes ? `<div class="text-xs text-rose-500 mt-0.5"><span class="font-medium">🔧修复</span>：${escapeHtml(fx.fixes)}</div>` : ''}
+            ${p.remark ? `<div class="text-xs text-slate-400 mt-0.5">备注：${escapeHtml(p.remark)}</div>` : ''}
+          </div>
+          ${p.version ? `<span class="text-xs font-mono bg-slate-100 text-slate-600 rounded-lg px-2 py-1 whitespace-nowrap">v${escapeHtml(p.version)}</span>` : ''}
+          <button title="点击切换打包状态" onclick="cycleStatus(${pi})"
+            class="px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap ${meta.cls}">${meta.label}</button>
+          <div class="flex gap-1 whitespace-nowrap">
+            <button onclick="openProjectModal(${pi})" title="编辑" class="text-sm w-7 h-7 rounded-lg hover:bg-slate-200">✎</button>
+            <button onclick="deleteProject(${pi})" title="删除" class="text-sm w-7 h-7 rounded-lg hover:bg-rose-100 hover:text-rose-600">🗑</button>
+          </div>
+        </div>`;
+    }
+
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    // ---- 状态切换 ----
+    function cycleStatus(pi) {
+      const p = state.projects[pi];
+      p.packaged = NEXT_STATUS[p.packaged] || 'todo';
+      save();
+    }
+
+    // ---- 项目 CRUD ----
+    function openProjectModal(pi) {
+      document.getElementById('projectModalTitle').textContent = pi === null ? '新增项目' : '编辑项目';
+      document.getElementById('pfProjectId').value = pi;
+      const p = pi !== null ? state.projects[pi] : { name:'', statusText:'', packaged:'todo', version:'', remark:'' };
+      const fx = fxFor(p, currentUser);
+      document.getElementById('pfName').value = p.name;
+      document.getElementById('pfPackaged').value = p.packaged;
+      document.getElementById('pfVersion').value = p.version;
+      document.getElementById('pfStatusText').value = p.statusText;
+      document.getElementById('pfFeatures').value = fx.features;
+      document.getElementById('pfFixes').value = fx.fixes;
+      document.getElementById('pfRemark').value = p.remark;
+      showModal('projectModal');
+    }
+
+    function saveProject() {
+      const pi = document.getElementById('pfProjectId').value;
+      const idx = pi === 'null' || pi === 'undefined' ? null : +pi;
+      const name = document.getElementById('pfName').value.trim();
+      if (!name) { alert('请输入项目名'); return; }
+      if (!currentUser) { alert('未配置负责人：请在 febot.config.json 的 teamwork.users 填写。'); return; }
+      const obj = {
+        name,
+        packaged: document.getElementById('pfPackaged').value,
+        version: document.getElementById('pfVersion').value.trim(),
+        statusText: document.getElementById('pfStatusText').value.trim(),
+        remark: document.getElementById('pfRemark').value.trim()
+      };
+      const features = document.getElementById('pfFeatures').value.trim();
+      const fixes = document.getElementById('pfFixes').value.trim();
+      if (idx === null) {
+        obj.id = 'p-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+        obj.fxByUser = { [currentUser]: { features, fixes } };
+        state.projects.push(obj);
+      } else {
+        Object.assign(state.projects[idx], obj);
+        const proj = state.projects[idx];
+        proj.fxByUser = proj.fxByUser || {};
+        proj.fxByUser[currentUser] = { features, fixes };
+      }
+      save();
+      closeModal('projectModal');
+    }
+
+    function deleteProject(pi) {
+      if (!confirm(`删除项目「${state.projects[pi].name}」？`)) return;
+      state.projects.splice(pi, 1);
+      save();
+    }
+
+    function save() {
+      render();
+      persist();
+    }
+
+    // ---- 弹窗通用 ----
+    function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function splitList(s) {
+      if (!s) return [];
+      return String(s).split(/[\n,，、]/).map(x => x.trim()).filter(Boolean);
+    }
+
+    function moduleToProject() {
+      const map = {};
+      (state.projects || []).forEach(p => { map[p.name] = p; });
+      return map;
+    }
+
+    function moduleAggregate(m) {
+      const proj = moduleToProject()[m.module];
+      const fx = fxFor(proj, currentUser);
+      const feats = uniqItems((m.items || []).map(r => r.title).concat(splitList(fx.features)));
+      const fixs = uniqItems(splitList(fx.fixes));
+      return { feats, fixs };
+    }
+
+    function uniqItems(list) {
+      const seen = new Set();
+      return (list || []).filter(x => {
+        const key = String(x).trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function renderWeek() {
+      const wrap = document.getElementById('weekWrap');
+      const body = document.getElementById('weekBody');
+      const mods = weekDataFor(currentUser);
+      wrap.classList.toggle('hidden', false);
+      const range = state.weekRange;
+      document.getElementById('weekTitle').textContent = range && range.startVal
+        ? `📋 ${range.startVal} ~ ${range.endVal} · 共 ${range.total} 条`
+        : '📋 本周已完成';
+      body.innerHTML = mods.length ? mods.map((m, mi) => {
+        const { feats, fixs } = moduleAggregate(m);
+        return `
+          <div class="border border-slate-200 rounded-lg p-3">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="font-semibold text-indigo-700">${escapeHtml(m.module)}
+                <span class="text-xs text-slate-400 font-normal">${feats.length} 项</span></div>
+              <button onclick="copyModuleTitles(${mi})" title="复制该项目新功能与修复"
+                class="text-xs px-2 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-50 whitespace-nowrap">复制</button>
+            </div>
+            <div class="text-xs font-medium text-emerald-600 mb-1">✨ 新功能</div>
+            <ul class="space-y-1">
+              ${feats.map((t, i) => `<li class="flex gap-2"><span class="min-w-0 flex-1 truncate" title="${escapeHtml(t)}">${i + 1}. ${escapeHtml(t)}</span></li>`).join('')}
+            </ul>
+            ${fixs.length ? `
+            <div class="text-xs font-medium text-rose-500 mt-3 mb-1">🐛 修复</div>
+            <ul class="space-y-1">
+              ${fixs.map((t, i) => `<li class="flex gap-2"><span class="min-w-0 flex-1 truncate" title="${escapeHtml(t)}">${i + 1}. ${escapeHtml(t)}</span></li>`).join('')}
+            </ul>` : ''}
+          </div>`;
+      }).join('') : '';
+    }
+
+    // ---- 导出 ----
+    async function exportData() {
+      const notDone = (state.projects || []).filter(p => p.packaged !== 'done');
+      if (notDone.length) {
+        showToast(`有 ${notDone.length} 个项目未完成，请先全部改为「已完成」再导出`);
+        return;
+      }
+      try {
+        const res = await fetch('/api/export', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        showToast('已导出到 ' + data.path);
+      } catch (e) {
+        showToast('导出失败：' + e.message);
+      }
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+    }
+
+    async function copyModuleTitles(mi) {
+      const mod = weekDataFor(currentUser)[mi];
+      if (!mod) return;
+      const { feats, fixs } = moduleAggregate(mod);
+      const lines = ['✨ 新功能'];
+      feats.forEach((t, i) => lines.push(`${i + 1}. ${t}`));
+      if (fixs.length) {
+        lines.push('');
+        lines.push('🐛 修复');
+        fixs.forEach((t, i) => lines.push(`${i + 1}. ${t}`));
+      }
+      const text = lines.join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(`已复制 ${feats.length} 新功能${fixs.length ? ' + ' + fixs.length + ' 修复' : ''}`);
+      } catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(`已复制 ${feats.length} 新功能${fixs.length ? ' + ' + fixs.length + ' 修复' : ''}`);
+      }
+    }
+
+    // ---- 一键更新 ----
+    async function updateWeek() {
+      if (!currentUser) { alert('未配置负责人：请在 febot.config.json 的 teamwork.users 填写。'); return; }
+      const btn = document.getElementById('updateBtn');
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = '更新中…';
+      try {
+        const res = await fetch('/api/current-week?user=' + encodeURIComponent(currentUser));
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        state.currentWeekByUser = state.currentWeekByUser || {};
+        state.currentWeekByUser[currentUser] = data.modules || [];
+        state.weekRange = { startVal: data.startVal, endVal: data.endVal, total: data.total };
+        save();
+        alert(`已更新：共 ${data.total} 条已完成任务，分属 ${data.modules.length} 个项目`);
+      } catch (e) {
+        alert('一键更新失败：' + e.message + '\n若为鉴权/网络问题，请检查 febot.config.json 的 teamwork 段（base / cookie），或 .teamwork/auth.txt 里的账号密码。');
+      } finally {
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }
+
+    // ---- 重置 ----
+    function resetData() {
+      if (!confirm('是否重置、数据清空，请确保已经导出备份')) return;
+      (state.projects || []).forEach(p => {
+        p.features = '';
+        p.fixes = '';
+        p.fxByUser = {};
+        p.packaged = 'doing';
+      });
+      state.currentWeekFinished = [];
+      state.currentWeekByUser = {};
+      state.weekRange = null;
+      save();
+      showToast('已重置');
+    }
+
+    document.getElementById('searchInput').addEventListener('input', render);
+    load();
+  </script>
+</body>
+</html>

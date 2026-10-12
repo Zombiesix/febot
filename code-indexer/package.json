@@ -1,0 +1,54 @@
+{
+  "name": "code-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vue3 repo static indexer: routes / modules / API domains / component graph / warnings. CLI + stdio MCP server.",
+  "type": "module",
+  "bin": {
+    "xiaoyou-index": "./bin/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./endpoint-types": {
+      "types": "./dist/types/endpoint-types.d.ts",
+      "default": "./dist/endpoint-types.js"
+    },
+    "./via-label": {
+      "types": "./dist/types/via-label.d.ts",
+      "default": "./dist/via-label.js"
+    },
+    "./query": {
+      "types": "./dist/types/query/index.d.ts",
+      "default": "./dist/query/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.30",
+    "@vue/compiler-dom": ">=3.5",
+    "@vue/compiler-sfc": ">=3.5",
+    "typescript": ">=5.5",
+    "zod": ">=3"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@types/node": "^22.10.5",
+    "@vue/compiler-dom": "^3.5.13",
+    "@vue/compiler-sfc": "^3.5.13",
+    "typescript": "^5.7.3",
+    "zod": "^4.6.5"
+  }
+}
