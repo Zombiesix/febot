@@ -70,6 +70,9 @@ function str(v: unknown): string {
 export interface TeamworkConfig {
   base: string;
   username: string;
+  /** 登录账号。password 是前端加密后的密文，原样透传，不解密 */
+  loginName: string;
+  password: string;
   userTag: string;
   tableId: string;
   autograph: string;
@@ -84,6 +87,8 @@ export function readTeamworkConfig(): TeamworkConfig {
   return {
     base: str(tw.base).replace(/\/+$/, ""),
     username: str(tw.username),
+    loginName: str(tw.loginName),
+    password: str(tw.password),
     userTag: str(tw.userTag),
     tableId: str(tw.tableId),
     autograph: str(tw.autograph),

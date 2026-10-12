@@ -489,7 +489,7 @@
         save();
         alert(`已更新：共 ${data.total} 条已完成任务，分属 ${data.modules.length} 个项目`);
       } catch (e) {
-        alert('一键更新失败：' + e.message + '\n若为鉴权/网络问题，请检查 febot.config.json 的 teamwork 段（base / cookie），或 .teamwork/auth.txt 里的账号密码。');
+        alert('一键更新失败：' + e.message + '\n若为鉴权/网络问题，请检查 febot.config.json 的 teamwork 段（base / cookie / loginName / password）。');
       } finally {
         btn.disabled = false; btn.textContent = orig;
       }

@@ -12,10 +12,9 @@
 | `file-lock.md`          | `file-lock.md`                      |
 | `om-data.json`          | `om/data.json`                      |
 | `claude-settings.json`  | `.claude/settings.json`             |
-| `teamwork-auth.txt`     | `.teamwork/auth.txt`                |
 | `swagger-services.conf` | `swagger-mcp-server/services.conf`  |
 | `hindsight.env`         | `scripts/hindsight.env`             |
 
 生成逻辑见 [scripts/ensure-config.mjs](../scripts/ensure-config.mjs)：**目标已存在则跳过，绝不覆盖**，所以重复跑 `yarn setup` 是安全的，也不会冲掉你填过的内容。
 
-> `teamwork-auth.txt` 与 `hindsight.env` 里只放占位值。真实的账号、cookie、API key 一律只留在生成出来的本地文件里，**不要提交回这里**。
+> `febot.config.json` 与 `hindsight.env` 里只放占位值。真实的账号、cookie、API key 一律只留在生成出来的本地文件里，**不要提交回这里**。

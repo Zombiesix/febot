@@ -38,11 +38,6 @@ const TEMPLATES = [
     hint: '含 archive 禁区 deny 规则；如需免确认自行加 permissions.defaultMode',
   },
   {
-    src: 'example/teamwork-auth.txt',
-    dst: '.teamwork/auth.txt',
-    hint: '请填入你的 loginName / password / host',
-  },
-  {
     src: 'example/swagger-services.conf',
     dst: 'swagger-mcp-server/services.conf',
     hint: 'swagger-multi 服务清单（一行一条 服务名=地址），填完跑 update_global_mcp.sh',

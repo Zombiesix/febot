@@ -33,16 +33,10 @@ function cfg(): TeamworkConfig {
   return readTeamworkConfig();
 }
 
-/** 平台地址：teamwork.base → auth.txt 的 host → 报错。绝不兜底到任何内置地址。 */
+/** 平台地址：只认 teamwork.base，缺了就报错。绝不兜底到任何内置地址。 */
 function baseUrl(): string {
-  const c = cfg();
-  if (c.base) return c.base;
-  try {
-    const host = readCredentials().host.trim();
-    if (host) return host.replace(/\/+$/, "");
-  } catch {
-    // auth.txt 也没有，落到下面统一报错
-  }
+  const base = cfg().base;
+  if (base) return base;
   throw new TwLoginError("未配置协作平台地址：请在 febot.config.json 的 teamwork.base 填写");
 }
 
@@ -136,7 +130,7 @@ async function reLogin(): Promise<string> {
     body: new URLSearchParams({
       loginName: cred.loginName,
       password: cred.password,
-      host: cred.host,
+      host: base,
     }).toString(),
   });
   const text = await resp.text();

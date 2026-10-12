@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   try {
     if (!hasCredentials()) {
       return NextResponse.json(
-        { error: "未找到协作平台凭证 auth.txt" },
+        { error: "未配置协作平台账号：请在 febot.config.json 的 teamwork.loginName / teamwork.password 填写" },
         { status: 400 }
       );
     }

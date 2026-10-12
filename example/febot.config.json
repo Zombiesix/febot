@@ -12,6 +12,8 @@
   "teamwork": {
     "base": "",
     "username": "",
+    "loginName": "",
+    "password": "",
     "userTag": "",
     "tableId": "",
     "autograph": "",

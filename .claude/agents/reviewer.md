@@ -17,7 +17,7 @@ background: true
 2. 是否引入死代码 / 无用依赖。
 3. lint / test / build 是否真实跑通：对照 `test-report.md`，不能只看声称。
 4. 是否偏离需求文档 context.md。
-5. 敏感文件（`.env*`、auth.txt 等）是否被误动或无审批改动。
+5. 敏感文件（`.env*`、`febot.config.json`、`hindsight.env` 等含密钥配置）是否被误动或无审批改动。
 
 人工口味（Hindsight）：
 

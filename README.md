@@ -56,8 +56,7 @@ yarn setup
 
    | 模板（`example/`）       | 生成物                             | 用途                                             |
    | ------------------------ | ---------------------------------- | ------------------------------------------------ |
-   | `febot.config.json`      | `febot.config.json`                | **主配置**：仓库根 / 仓库列表 / 分支 / Jenkins / 协作平台 |
-   | `teamwork-auth.txt`      | `.teamwork/auth.txt`               | 协作平台账号密码                                 |
+   | `febot.config.json`      | `febot.config.json`                | **主配置**：仓库根 / 仓库列表 / 分支 / Jenkins / 协作平台（含账号密码） |
    | `hindsight.env`          | `scripts/hindsight.env`            | Hindsight 的 LLM / embedding key                 |
    | `tasks.md`               | `tasks.md`                         | 需求元信息表（流水线会往里追加行）               |
    | `project-map.md`         | `project-map.md`                   | 「平台产品 → 仓库」映射，喂食时查它              |
@@ -87,8 +86,10 @@ yarn setup
     "jobs": { "example-repo": "example-job" } // URL = base/<job>/build?delay=0sec
   },
   "teamwork": {
-    "base": "https://teamwork.example.com",  // 协作平台 origin
+    "base": "https://teamwork.example.com",  // 协作平台 origin，也是登录接口的 host
     "username": "你的协作平台用户名",          // 默认过滤人
+    "loginName": "你的登录账号",              // cookie 为空时用这对账号密码自动登录
+    "password": "前端加密后的密文",            // 原样透传，别换成明文（会累计失败次数）
     "userTag": "",
     "tableId": "",
     "autograph": "",
@@ -100,7 +101,7 @@ yarn setup
 ```
 
 - **`teamwork` 段留空 = 功能软降级**：不报错、不猜地址，「同步 / 一键更新」不可用，其余照常。
-- **不要往里写内网地址以外的敏感信息**：cookie / token 只在本地文件里，别提交。
+- **`febot.config.json` 是敏感文件**：`cookie` / `password` 都在这，别提交、别贴给别人（它已 gitignore）。
 
 ## 0.4 准备目标仓
 
@@ -152,7 +153,7 @@ python scripts/ensure-banks.py
 | `yarn recon` 报「tasks.md 不存在」 | 没跑 `yarn setup`，或手工删掉了。从 `example/tasks.md` 复制一份即可 |
 | `recon` 报「repo dir not found」 | `repoRoot/<仓库目录名>` 不存在。先 clone，且目录名要和 `tasks.md` 第 5 列一致 |
 | 点「同步」报 400 | 没配 `teamwork.username`，且请求里也没带用户 |
-| om 点「一键更新」报 502 | 没配 `teamwork.cookie` 且没有 `.teamwork/auth.txt`。从 `example/teamwork-auth.txt` 生成后填账号密码 |
+| om 点「一键更新」报 502 | 没配 `teamwork.cookie`，也没填 `teamwork.loginName` / `teamwork.password`。在 `febot.config.json` 的 `teamwork` 段补上账号密码即可自动登录 |
 | Git Bash 下 `/xxx` 参数被转成 Windows 路径 | 加 `MSYS_NO_PATHCONV=1` 前缀 |
 
 ---
@@ -414,7 +415,7 @@ om/                      发版看板(独立,见 §16)
 8. 每需求独立会话（上下文隔离，与 worktree 无关）
 9. coder/reviewer 只认 plan.md「将改动文件清单」，不越界、不动清单外的改动
 10. subagent 只收摘要,不接完整代码/推理
-11. 敏感文件(.env\*/auth.txt)必须人工审批
+11. 敏感文件(.env\*、febot.config.json、hindsight.env)必须人工审批
 12. 人工验收后才提交合并——**AgentTeam 只留未提交改动，提交/推送是 ⑤ 步，由人做**
 
 ### 全局约束（对流水线主对话与所有 subagent 生效）

@@ -46,12 +46,13 @@ const CONFIG = loadConfig();
 const TW = (CONFIG.teamwork && typeof CONFIG.teamwork === 'object') ? CONFIG.teamwork : {};
 const str = v => (typeof v === 'string' ? v.trim() : '');
 
-// ---- teamwork 取数（cookie 过期时用 .teamwork/auth.txt 自动重新登录刷新）----
+// ---- teamwork 取数（cookie 过期时用 teamwork 段的账号密码自动重新登录刷新）----
 const BASE = str(TW.base);
 const TW_API_PATH = '/teamworkapi/tableReader/getTableData';
 const TW_LOGIN_PATH = '/teamworkapi/user/login';
 const TW_USERNAME = str(TW.username);
-const AUTH_FILE = path.join(ROOT, '..', '.teamwork', 'auth.txt');
+const TW_LOGIN_NAME = str(TW.loginName);
+const TW_PASSWORD = str(TW.password);
 let TW_COOKIE = str(TW.cookie);
 
 function baseUrl() {
@@ -95,14 +96,13 @@ function buildBody(startVal, endVal, username) {
   ].join('&');
 }
 
-// 用 .teamwork/auth.txt 重新登录，刷新 TW_COOKIE（登录接口需前端加密密文，见协作平台接口流程 §0/§8）
+// 用 febot.config.json teamwork 段的账号密码重新登录，刷新 TW_COOKIE
+// （登录接口需前端加密密文，见协作平台接口流程 §0/§8）
 async function reLogin() {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf8');
-  const cred = Object.fromEntries(raw.trim().split('\n').map(l => {
-    const i = l.indexOf('=');
-    return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-  }));
-  if (!cred.loginName || !cred.password || !cred.host) throw new Error('auth.txt 缺 loginName / password / host');
+  if (!TW_LOGIN_NAME || !TW_PASSWORD) {
+    throw new Error('未配置协作平台账号：请在 febot.config.json 的 teamwork.loginName / teamwork.password 填写');
+  }
+  const cred = { loginName: TW_LOGIN_NAME, password: TW_PASSWORD, host: baseUrl() };
   const resp = await fetch(baseUrl() + TW_LOGIN_PATH, {
     method: 'POST',
     headers: {
@@ -350,9 +350,9 @@ const server = http.createServer((req, res) => {
 
   // ---- 一键更新：上周五至今的实际完成任务，按 module 分类 ----
   if (pathname === '/api/current-week' && req.method === 'GET') {
-    if (!TW_COOKIE && !fs.existsSync(AUTH_FILE)) {
+    if (!TW_COOKIE && !(TW_LOGIN_NAME && TW_PASSWORD)) {
       send(res, 502, JSON.stringify({
-        error: '未配置协作平台凭据：请在 febot.config.json 的 teamwork 段填 base / cookie，或跑 yarn setup 生成 .teamwork/auth.txt（loginName / password / host）'
+        error: '未配置协作平台凭据：请在 febot.config.json 的 teamwork 段填 base / cookie，或填 loginName / password 走自动登录'
       }));
       return;
     }

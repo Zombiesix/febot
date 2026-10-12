@@ -25,8 +25,8 @@ docs/        导出物（本地生成，gitignore）
 
 ## 配置
 
-- **负责人列表 / 默认负责人 / 协作平台地址与凭据**：读仓库根的 `febot.config.json` 的 `teamwork` 段（`users` / `username` / `base` / `cookie` / `userTag` / `tableId` / `autograph`）。
-- **账号密码**：`teamwork.cookie` 留空时，走 `.teamwork/auth.txt`（`loginName` / `password` / `host`）自动登录并刷新 cookie。
+- **负责人列表 / 默认负责人 / 协作平台地址与凭据**：读仓库根的 `febot.config.json` 的 `teamwork` 段（`users` / `username` / `base` / `cookie` / `loginName` / `password` / `userTag` / `tableId` / `autograph`）。
+- **账号密码**：`teamwork.cookie` 留空时，用 `teamwork.loginName` / `teamwork.password` 自动登录并刷新 cookie（`password` 是前端加密密文，原样透传）。
 - 两者都没配 → 「一键更新」返回 502 并给出指引，页面其余部分照常。
 
 > `om/docs/` 取消入库后，`server.js` 的 `latestDocStart()` 会从「上次导出日期」退化为「最近一次周五 00:00」。这只影响「一键更新」的时间起点，不报错。

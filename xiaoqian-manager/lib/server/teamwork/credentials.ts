@@ -1,63 +1,28 @@
-import fs from "node:fs";
-import path from "node:path";
+import { readTeamworkConfig } from "@/lib/server/config/root";
 
-// 协作平台登录凭证。password 是前端 JS 加密后的密文，原样透传给登录接口，
+// 协作平台登录凭证，与其余 teamwork 配置统一来自 febot.config.json 的 teamwork 段。
+// password 是前端 JS 加密后的密文，原样透传给登录接口，
 // 不要解密、不要尝试明文（会累计失败次数）。
 // 凭证只留在服务端，绝不进入任何返回给浏览器的 JSON。
+//
+// 平台地址不在本模块：唯一来源是 teamwork.base（见 client.ts 的 baseUrl）。
 
 export interface TwCredentials {
   loginName: string;
   password: string;
-  host: string;
-}
-
-let cached: { file: string; cred: TwCredentials } | null = null;
-
-function resolveAuthFile(): string | null {
-  const fromEnv = process.env.TW_AUTH_FILE;
-  if (fromEnv && fs.existsSync(path.resolve(fromEnv))) {
-    return path.resolve(fromEnv);
-  }
-  const candidates = [
-    path.join(process.cwd(), ".teamwork", "auth.txt"),
-    path.join(process.cwd(), "..", ".teamwork", "auth.txt"),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  return null;
-}
-
-function parseAuthFile(file: string): TwCredentials {
-  const raw = fs.readFileSync(file, "utf8");
-  const cred = Object.fromEntries(
-    raw
-      .trim()
-      .split("\n")
-      .map((l) => {
-        const i = l.indexOf("=");
-        return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-      })
-  ) as Record<string, string>;
-  if (!cred.loginName || !cred.password || !cred.host) {
-    throw new Error("auth.txt 缺少 loginName / password / host");
-  }
-  return { loginName: cred.loginName, password: cred.password, host: cred.host };
 }
 
 export function hasCredentials(): boolean {
-  return resolveAuthFile() !== null;
+  const c = readTeamworkConfig();
+  return c.loginName !== "" && c.password !== "";
 }
 
 export function readCredentials(): TwCredentials {
-  const file = resolveAuthFile();
-  if (!file) {
+  const c = readTeamworkConfig();
+  if (!c.loginName || !c.password) {
     throw new Error(
-      "未找到 auth.txt，试过 TW_AUTH_FILE 环境变量、.teamwork/auth.txt、../.teamwork/auth.txt"
+      "未配置协作平台账号：请在 febot.config.json 的 teamwork.loginName / teamwork.password 填写"
     );
   }
-  if (cached && cached.file === file) return cached.cred;
-  const cred = parseAuthFile(file);
-  cached = { file, cred };
-  return cred;
+  return { loginName: c.loginName, password: c.password };
 }

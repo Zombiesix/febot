@@ -23,7 +23,7 @@ background: false
 - 遇到不确定的问题写 questions.md（带编号）并暂停。
 - **直接改主仓 `<repoRoot>/<仓库>` 固定分支的工作区**；不 `add` / `commit` / `push` / `stash`，改动以未提交形式留下。不碰 plan 清单外的文件、不碰其他需求的资源。
 - 工作区里**出现清单外的改动**（别人的活）→ 停下来报告，不擅自清理、不回退、不 stash。
-- 敏感文件（.env*、auth.txt 等）未获 decisions.md 审批，不动。
+- 敏感文件（.env*、febot.config.json、hindsight.env 等含密钥配置）未获 decisions.md 审批，不动。
 - 不读 `archive/` 目录（历史归档，禁止作为当前需求依据）。
 
 返回给 orchestrator：只给摘要（进度 + 测试结果），不粘贴完整代码、不展开调试过程。

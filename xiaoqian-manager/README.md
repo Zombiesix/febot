@@ -24,8 +24,7 @@ yarn xiaoqian          # 等价于 yarn --cwd xiaoqian-manager dev
 
 | 文件                          | 用途                                                             |
 | ----------------------------- | ---------------------------------------------------------------- |
-| `../febot.config.json`        | 仓库根 / 仓库列表 / 分支白名单 / Jenkins / 协作平台（`teamwork` 段） |
-| `../.teamwork/auth.txt`       | 协作平台账号密码（`loginName` / `password` / `host`）             |
+| `../febot.config.json`        | 仓库根 / 仓库列表 / 分支白名单 / Jenkins / 协作平台（`teamwork` 段，含 `loginName` / `password`） |
 | `data/tasks.json`             | 同步下来的需求（本目录内，已 gitignore）                          |
 
 两份配置都由仓库根的 `yarn setup` 生成模板，**不会自动覆盖**已存在的内容。

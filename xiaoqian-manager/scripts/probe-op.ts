@@ -4,7 +4,7 @@ import {
   fetchRecord,
   pushDevOperation,
 } from "../lib/server/teamwork/client";
-import { readCredentials } from "../lib/server/teamwork/credentials";
+import { hasCredentials } from "../lib/server/teamwork/credentials";
 import { readTeamworkConfig } from "../lib/server/config/root";
 import fs from "node:fs";
 import path from "node:path";
@@ -13,8 +13,10 @@ import path from "node:path";
 async function rawOperation(taskId: string, mode: string) {
   const cookieFile = path.join(process.cwd(), "data", ".tw-cookie.json");
   const cookie = JSON.parse(fs.readFileSync(cookieFile, "utf8")).cookie as string;
-  const cred = readCredentials();
-  const base = `https://${cred.host}`;
+  if (!hasCredentials()) {
+    throw new Error("请在 febot.config.json 的 teamwork.loginName / teamwork.password 填写");
+  }
+  const base = readTeamworkConfig().base;
   const ua =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36";
   const headers: Record<string, string> = {

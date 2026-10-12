@@ -5,9 +5,6 @@ node_modules/
 # 多 Agent 执行过程文成
 docs/requirements/R-*
 
-# 协作平台账号
-.teamwork/auth.txt
-
 # hindsight 配置的模型
 scripts/*.env
 
@@ -23,6 +20,7 @@ docs/assistant/
 /om/data.json
 /.claude/settings.json
 /swagger-mcp-server/services.conf
+scripts/hindsight.env
 
 # 本地数据 / 目标仓克隆 / 缓存
 gitlab/

@@ -33,7 +33,7 @@ background: false
 - **底稿为空或标「不支持 / 接口层未解析」时，不得把空底稿当结论**——它只说明索引器对该仓无产出（血库仓是 Vue2、索引器只有 Vue3 适配），不说明该仓没有这段代码。此时自行 Grep，并在位置指针里注明「recon 无产出，Grep 得」。
 - 接口的**入参/出参不在底稿内**：底稿只给 `fn | method | url | 出处`。需要契约时读该文件，或用 swagger 工具核对；核对不到的写成 Q，不要凭字段名猜。
 - 不重扫全量，尽可能把「需求摘要 + 关键代码位置指针」下沉到 plan.md，让 coder 只读 delta。
-- 改动面触及敏感文件（`.env*`、auth.txt、含密钥配置）时，写进 questions.md 升级为 Q。
+- 改动面触及敏感文件（`.env*`、`febot.config.json`、`hindsight.env` 等含密钥配置）时，写进 questions.md 升级为 Q。
 - 不读 `archive/` 目录（历史归档，禁止作为当前需求依据）。
 
 返回给 orchestrator：只给一行摘要（产物路径 + 问题条数），不粘贴正文、不展开推理。
