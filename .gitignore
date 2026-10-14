@@ -23,7 +23,6 @@ docs/assistant/
 scripts/hindsight.env
 
 # 本地数据 / 目标仓克隆 / 缓存
-gitlab/
 om/docs/
 __pycache__/
 .claude/settings.local.json

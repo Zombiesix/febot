@@ -15,7 +15,7 @@ background: true
 
 1. 改动面是否与 plan.md「将改动文件清单」一致（是否越界）。
 2. 是否引入死代码 / 无用依赖。
-3. lint / test / build 是否真实跑通：对照 `test-report.md`，不能只看声称。
+3. lint / test 是否真实跑通：对照 `test-report.md`，不能只看声称。**build 默认不在门禁内**（2026-10-14 修订）——`test-report.md` 里没有 build 记录属正常，不记为 blocker；只有当改动涉及构建配置、而 `test-report.md` 声称跑过 build 时，才核验其真实性。
 4. 是否偏离需求文档 context.md。
 5. 敏感文件（`.env*`、`febot.config.json`、`hindsight.env` 等含密钥配置）是否被误动或无审批改动。
 

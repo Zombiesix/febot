@@ -95,7 +95,7 @@ python scripts/hindsight-memo.py retain --bank <产品线bank> --content "<决�
 - 读 plan.md、answers.md(修复轮改传 review.md、review-fix.md)
 - 只读 plan 摘要与文件指针，不重扫全需求
 - 每子任务更新 progress.md
-- 跑 lint/test/build 写 test-report.md
+- 跑 lint/test 写 test-report.md（**不跑 build**，除非负责人点名或改动涉及构建配置）
 返回:只摘要(进度 + 测试结果)
 ```
 
@@ -137,11 +137,12 @@ python scripts/hindsight-memo.py retain --bank li-expertise --content "<人工�
 
 ```
 请作为 coder 复验 A-001。
-- 跑 lint/test/build，更新 test-report.md
+- 跑 lint/test，更新 test-report.md
 返回:只摘要(是否全绿)
 ```
 
-不全绿 → 回 coding/fixing；全绿 → done。
+**「全绿」= lint + test 全过**（2026-10-14 修订：build 不再计入复验门禁，见 coder.md「不跑 build」）。不全绿 → 回 coding/fixing；全绿 → done。
+build 仅作按需项：负责人点名、或本次改动涉及构建配置时才补跑，跑完把 `auto-imports.d.ts` / `components.d.ts` 这类自动生成文件的改动还原，别污染收尾校验的改动清单。
 
 ### done → 主对话
 
