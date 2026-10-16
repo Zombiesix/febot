@@ -160,7 +160,7 @@ function latestDocStart() {
   if (!dates.length) return lastThursday();
   dates.sort();
   const [y, m, d] = dates[dates.length - 1].split('-').map(Number);
-  const dt = new Date(y, m - 1, d, 23, 59, 59);
+  const dt = new Date(y, m - 1, d - 1, 23, 59, 59);
   return dt;
 }
 
