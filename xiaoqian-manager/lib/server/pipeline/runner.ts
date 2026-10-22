@@ -79,13 +79,9 @@ export function renderPlanFile(task: Task): string {
   ]
     .filter((l) => !l.endsWith(": "))
     .join("\n");
-  const attachments =
-    task.attachments.length > 0
-      ? task.attachments.map((a) => `- ${a}`).join("\n")
-      : "（无）";
   // 优先使用研发人员在「计划」节点整理后的描述
   const description = task.plannedDescription.trim() || task.description || "（空）";
-  return `# ${task.title}\n\n${meta}\n\n## 问题描述\n\n${description}\n\n## 分配任务说明\n\n${task.assignDescription || "（空）"}\n\n## 附件\n\n${attachments}\n`;
+  return `# ${task.title}\n\n${meta}\n\n## 问题描述\n\n${description}\n\n## 分配任务说明\n\n${task.assignDescription || "（空）"}\n`;
 }
 
 function writePlanFile(task: Task, file: string): void {
