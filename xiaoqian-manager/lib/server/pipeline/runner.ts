@@ -5,7 +5,7 @@ import type { Task } from "@/lib/domain/schema";
 import { updateTask } from "@/lib/server/store";
 
 // 「写代码」节点的 ▶：弹一个新终端窗口在 febot 根目录跑交互式 claude `/pipeline <任务ID>`。
-// 点 ▶ 即视为第 ② 步（计划）已完成，所以启动时把 planer 置 done、coder 置 active；
+// 启动只动「写代码」节点（coder → active）；第 ② 步「计划」的状态由人工在弹框里自行标记，▶ 不代劳。
 // 窗口关闭（进程退出）即收尾：exit 0 → coder done；非 0 → coder 保留 active 并写错误 note。
 //
 // 已知边界：仅单进程有效（与 store.ts 同一前提）；dev server 重启会丢 exit 回调，
@@ -72,19 +72,11 @@ export async function startPipeline(task: Task): Promise<Task> {
   const planFile = writePlanFile(task);
 
   // 先置状态，再 spawn：exit 回调里依赖「coder 已是 active」做守卫，顺序不能反。
-  // 点 ▶ = 计划阶段已拍板，因此 planer 直接收口为 done。
+  // 只碰 coder：planer 的状态由人工决定，这里不替用户收口。
   const now = new Date().toISOString();
   const active = await updateTask(task.id, (t) => ({
     ...t,
     stages: t.stages.map((s) => {
-      if (s.key === "planer" && s.status !== "done") {
-        return {
-          ...s,
-          status: "done",
-          startedAt: s.startedAt ?? now,
-          finishedAt: s.finishedAt ?? now,
-        };
-      }
       if (s.key === "coder") {
         return { ...s, status: "active", startedAt: s.startedAt ?? now, finishedAt: null };
       }
@@ -121,7 +113,7 @@ export async function startPipeline(task: Task): Promise<Task> {
       { cwd: FEBOT_ROOT, windowsHide: false, stdio: "ignore" }
     );
   } catch (e) {
-    // 窗口没弹起来：把 coder 退回未开始，别留一个虚假的进行中（planer 保持 done）
+    // 窗口没弹起来：把 coder 退回未开始，别留一个虚假的进行中
     await updateTask(task.id, (t) => ({
       ...t,
       stages: t.stages.map((s) =>

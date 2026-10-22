@@ -43,15 +43,7 @@ function normalizeStages(raw: unknown): unknown {
     const found = byKey.get(d.key);
     return found ? { ...found } : { key: d.key, name: d.name };
   });
-  // 编码已开始（coder != pending）但计划还不是 done 的历史数据：补成 done，
-  // 否则进度会永远停在 1/3。
-  const planer = stages.find((s) => s.key === "planer");
-  const coder = stages.find((s) => s.key === "coder");
-  if (planer && coder && coder.status !== "pending" && planer.status !== "done") {
-    planer.status = "done";
-    planer.finishedAt =
-      planer.finishedAt ?? coder.startedAt ?? new Date().toISOString();
-  }
+  // 阶段状态一律由人工维护，这里不补 done、不改写状态。
   return stages;
 }
 
