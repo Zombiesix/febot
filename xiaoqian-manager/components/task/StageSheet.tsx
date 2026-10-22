@@ -20,7 +20,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { Stage, StageStatus } from "@/lib/domain/schema";
+import type { Stage, StageStatus, Task } from "@/lib/domain/schema";
 import type { GitOptions } from "@/lib/domain/git";
 import { stageVisual } from "@/lib/domain/stage-visual";
 import { fmtDateTime } from "@/lib/ui/format";
@@ -33,23 +33,30 @@ const STATUS_OPTIONS: { value: StageStatus; label: string }[] = [
 
 export default function StageSheet({
   sheet,
+  task,
   gitOptions,
   onClose,
   onSaved,
 }: {
   sheet: { taskId: string; stage: Stage } | null;
+  task: Task | null;
   gitOptions: GitOptions;
   onClose: () => void;
   onSaved: () => void;
 }) {
   // 部署节点只有「已完成」一种终态：默认即为 done，且不允许改。
   const isDeploy = sheet?.stage.key === "deploy";
+  // 计划节点额外提供「修改描述」，作为第 ③ 步 AI 写代码的输入。
+  const isPlaner = sheet?.stage.key === "planer";
   // 表单初始值来自挂载时的 props；父组件用 key={taskId:stageKey} 触发重挂载来重置。
   const [status, setStatus] = useState<StageStatus>(
     isDeploy ? "done" : (sheet?.stage.status ?? "pending"),
   );
   const [owner, setOwner] = useState(sheet?.stage.owner ?? "");
   const [note, setNote] = useState(sheet?.stage.note ?? "");
+  const [plannedDescription, setPlannedDescription] = useState(
+    task?.plannedDescription || task?.description || "",
+  );
   const [repo, setRepo] = useState("");
   const [targetBranch, setTargetBranch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -67,6 +74,9 @@ export default function StageSheet({
         owner,
         note,
       };
+      if (isPlaner) {
+        body.plannedDescription = plannedDescription;
+      }
       if (isDeploy) {
         body.repo = repo;
         body.targetBranch = targetBranch;
@@ -123,6 +133,22 @@ export default function StageSheet({
               </p>
             )}
           </div>
+          {isPlaner && (
+            <div className="space-y-2">
+              <Label htmlFor="stage-planned-description">修改描述</Label>
+              <textarea
+                id="stage-planned-description"
+                value={plannedDescription}
+                onChange={(e) => setPlannedDescription(e.target.value)}
+                rows={10}
+                className="max-h-64 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                placeholder="整理需求背景、要改的页面与期望效果"
+              />
+              <p className="text-xs text-muted-foreground">
+                这里整理后的描述会作为第 ③ 步 AI 写代码的需求输入（留空则使用平台原文）。
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="stage-owner">负责人</Label>
             <Input

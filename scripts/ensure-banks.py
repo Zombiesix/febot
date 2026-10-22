@@ -43,7 +43,7 @@ STATIC_RULES = [
      "基准分支由配置决定"),
     ("AgentTeam 直接在主仓基准分支工作区改代码（不建 worktree、不切分支），改动以未提交形式留在工作区，绝不 add/commit/push 远程；远程提交合并是 xiaoqian deploy 阶段由人完成。",
      "直接在主仓基准分支工作区改代码"),
-    ("开工门禁：需求开工前主仓工作区必须干净（当前分支 == febot.config.json 的 branches.default，且 git status --porcelain 为空），不干净就停下来等人工在 ⑤ 步提交；因共用同一工作区，同一仓库同一时间只能跑一个需求。",
+    ("开工门禁：需求开工前主仓工作区必须干净（当前分支 == febot.config.json 的 branches.default，且 git status --porcelain 为空），不干净就停下来等人工在 ④ 步提交；因共用同一工作区，同一仓库同一时间只能跑一个需求。",
      "开工门禁"),
 ]
 

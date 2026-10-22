@@ -14,6 +14,8 @@ const Body = z
     status: StageStatus,
     owner: z.string().optional(),
     note: z.string().optional(),
+    // 仅「计划」节点使用：研发人员整理后的需求描述
+    plannedDescription: z.string().optional(),
     repo: z.string().optional(),
     targetBranch: z.string().optional(),
   })
@@ -52,7 +54,8 @@ export async function PATCH(
       console.warn(`[stage] ${id} 请求体校验失败`, parsed.error.issues);
       return NextResponse.json({ error: "请求体校验失败" }, { status: 400 });
     }
-    const { stageKey, status, owner, note, repo, targetBranch } = parsed.data;
+    const { stageKey, status, owner, note, plannedDescription, repo, targetBranch } =
+      parsed.data;
     console.log(`[stage] ${id} 收到请求`, { stageKey, status, repo, targetBranch });
     const existing = readTasks().tasks.find((t) => t.id === id);
     if (!existing) {
@@ -91,6 +94,10 @@ export async function PATCH(
     console.log(`[stage] ${id} 步骤3/3 更新本地任务状态 开始`, { stageKey, status });
     const task = await updateTask(id, (t) => ({
       ...t,
+      // 只有「计划」节点能改描述；传空串表示回退到平台原文
+      ...(stageKey === "planer" && plannedDescription !== undefined
+        ? { plannedDescription }
+        : {}),
       stages: t.stages.map((s) => {
         if (s.key !== stageKey) return s;
         return {

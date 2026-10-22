@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ClipboardList,
   Code2,
-  FlaskConical,
   Loader2,
   Play,
   Rocket,
@@ -26,7 +25,6 @@ export type StageNodeType = Node<StageNodeData, "stage">;
 const ICONS = {
   planer: ClipboardList,
   coder: Code2,
-  test: FlaskConical,
   deploy: Rocket,
 } as const;
 
@@ -36,7 +34,7 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
   const v = stageVisual(stage.status);
   const Icon = ICONS[stage.key];
   const canStart =
-    stage.key === "planer" && stage.status === "pending" && !!onStartPipeline;
+    stage.key === "coder" && stage.status === "pending" && !!onStartPipeline;
 
   const subtitle =
     stage.status === "done" && stage.finishedAt
@@ -77,7 +75,7 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
       {canStart && (
         <button
           type="button"
-          title="开始流水线：弹出新窗口跑 Claude Code（计划+写代码）"
+          title="开始流水线：弹出新窗口跑 Claude Code（AI 规划 + 编码 + 审查 + 修复）"
           disabled={starting}
           className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-85 disabled:opacity-60"
           onClick={(e) => {

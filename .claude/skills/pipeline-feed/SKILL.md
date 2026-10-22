@@ -40,7 +40,7 @@ git -C <repoRoot>/<仓库> rev-parse --abbrev-ref HEAD   # 必须 == branches.de
 git -C <repoRoot>/<仓库> status --porcelain            # 必须为空
 ```
 - 分支不对 → 停,报告实际分支,不擅自 `checkout`(可能覆盖别人的活)。
-- 工作区非空 → 停,把 `status --porcelain` 原文贴给负责人,提示「上一个需求的改动还没提交,请先在 ⑤ 步 deploy 或人工 commit」。**不许**代为 commit、stash、checkout 清理。
+- 工作区非空 → 停,把 `status --porcelain` 原文贴给负责人,提示「上一个需求的改动还没提交,请先在 ④ 步 deploy 或人工 commit」。**不许**代为 commit、stash、checkout 清理。
 - 通过后把结果写进 context.md 的「关联代码位置」附近或 state.json,便于收尾复核。
 
 ### 3. 生成需求目录(脚手架)

@@ -52,11 +52,13 @@ export default function TaskBoard({
   }, [initialTasks, query, moduleFilter]);
 
   const hasActivePipeline = initialTasks.some((t) =>
-    t.stages.some(
-      (s) =>
-        (s.key === "planer" || s.key === "coder") && s.status === "active"
-    )
+    t.stages.some((s) => s.key === "coder" && s.status === "active")
   );
+
+  // 弹框始终取当前任务列表里的最新快照，避免 router.refresh() 后表单还是旧值
+  const sheetTask = sheet
+    ? (initialTasks.find((t) => t.id === sheet.taskId) ?? null)
+    : null;
 
   // 流水线在独立终端窗口里跑，结束后由服务端自动置 done —— 轮询刷新让页面看到结果
   useEffect(() => {
@@ -152,6 +154,7 @@ export default function TaskBoard({
       <StageSheet
         key={sheet ? `${sheet.taskId}:${sheet.stage.key}` : "closed"}
         sheet={sheet}
+        task={sheetTask}
         gitOptions={gitOptions}
         onClose={() => setSheet(null)}
         onSaved={() => router.refresh()}

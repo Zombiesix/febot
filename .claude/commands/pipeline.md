@@ -5,7 +5,7 @@
 ## 启动 / 恢复
 
 - 启动（任务ID）：`/pipeline A-001` —— 与 xiaoqian-manager「开始」按钮同款；计划文件是 xiaoqian-manager 生成的临时 md
-- 启动（口头需求）：`/pipeline <一句需求描述>` —— 无任务ID、无 md 文件，同样只跑 ②③（规划+编码+审查+修复）；①④⑤⑥ 天然不存在，全手动
+- 启动（口头需求）：`/pipeline <一句需求描述>` —— 无任务ID、无 md 文件，同样只跑 ②③（规划+编码+审查+修复）；①④⑤ 天然不存在，全手动
 - 恢复：`/pipeline resume A-001`（任务ID或别名均可）
 
 **参数判别规则**：参数能对应已接入的需求（`docs/requirements/R-<参数后6位>/` 存在，或 `xiaoqian-manager/data/temp/<参数>.md` 存在）→ 走任务ID流程；否则一律视为口头描述，走下面的口头流程。
@@ -23,7 +23,7 @@
 
 会话开始时，若该需求尚未接入流水线（`state.json` 不存在 / 无 `docs/requirements/<别名>/`），调用 **pipeline-feed** skill，参数 = PM 计划文件路径。**计划文件一律是临时文件**，放 `xiaoqian-manager/data/temp/`，正常收尾后删除：
 
-- 任务ID流程：文件由 xiaoqian-manager「开始」按钮预生成在 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian 侧 exit 0 时已自行删除）；人工 `/pipeline <任务ID>` 启动而没有该文件时，主对话从 xiaoqian-manager 的 `data/tasks.json` 找到对应任务、按同格式补写该临时文件，再继续。
+- 任务ID流程：文件由 xiaoqian-manager「写代码」节点的 ▶ 预生成在 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian 侧 exit 0 时已自行删除）；人工 `/pipeline <任务ID>` 启动而没有该文件时，主对话从 xiaoqian-manager 的 `data/tasks.json` 找到对应任务、按同格式补写该临时文件（`## 问题描述` 取 `plannedDescription` 非空则用之，否则 `description`），再继续。
 - **口头流程**：参数原文就是需求。主对话先落盘 `xiaoqian-manager/data/temp/R-oral-<MMDDHHmm>.md`：首行 `# <从描述提炼的标题，≤20字>`，`## 问题描述` 放描述原文；别名 = 文件名（`R-oral-<同一时间戳>`），由 pipeline-feed 从文件名取。后续阶段与任务ID流程完全一致。
 
 由 skill 完成脚手架：
@@ -32,7 +32,7 @@
 - 查 `project-map.md` 定**目标仓库**（**基准分支**：读 `febot.config.json` 的 `branches.default`，默认 `dev`，非 master）
 - **开工门禁（必须先过，不过就停）**：校验主仓 `<repoRoot>/<仓库>` ① 当前分支 == `branches.default`，② `git status --porcelain` 为空。
   （`<repoRoot>` = `febot.config.json` 的 `repoRoot`，默认 `./gitlab`。）
-  不满足 = 上一个需求的改动还没提交 → 停下来让负责人先在 ⑤ 步 deploy 或人工提交，**绝不允许带着脏工作区开工**（见 done「收尾边界铁律」）。
+  不满足 = 上一个需求的改动还没提交 → 停下来让负责人先在 ④ 步 deploy 或人工提交，**绝不允许带着脏工作区开工**（见 done「收尾边界铁律」）。
 - 拷 `_template/` → 填 `context.md`（把 **需求标题 + 一句需求描述** 放最顶）、`tasks.md`、`decisions.md`(tier)、`state.json`(phase=planning 或 coding)
 - 需求标题与一句需求描述进了 context.md 顶部，planner 据此快速理解，plan.md 生成更快更准
   已接入则跳过，直接读 `state.json` 定下一步。
@@ -146,7 +146,7 @@ build 仅作按需项：负责人点名、或本次改动涉及构建配置时�
 
 ### done → 主对话
 
-写 `worklog.md`、`state.json` 置 done → 收尾校验（见下）→ 负责人在**主仓固定分支工作区**上人工测试验收（④步，dev server 直接跑，依赖与 `.env` 都现成）：
+写 `worklog.md`、`state.json` 置 done → 收尾校验（见下）→ 负责人在**主仓固定分支工作区**上自行验收（人工验收不单列步骤；dev server 直接跑，依赖与 `.env` 都现成）：
 
 复盘（一次性 reflect，**人工门禁**；软降级，失败跳过）：
 ```bash
@@ -155,10 +155,10 @@ python scripts/hindsight-memo.py reflect --bank li-expertise --query "本需求(
 ```
 把 reflect 摘要贴出来**给负责人过目**；人工点头后，再把结论 retain 回库（`--context "R-<别名> 复盘"`）。**reflect 不自动入库**——防止 LLM 幻觉污染记忆；这与现状"人工只卡门禁"一致。
 
-> **收尾边界（铁律，2026-10-12 修订：不再用 worktree）**：AgentTeam **直接在主仓基准分支工作区里改代码**，改动以**未提交**形式留在工作区，**不进行 add / commit / push 任何代码**。基准分支= `febot.config.json` 的 `branches.default`（默认 `dev`，非 master），主仓 checkout 常驻该分支。人工测试是总流程 ④ 步（**就在这个工作区上跑 dev server**，这是放弃 worktree 换来的：依赖、`.env`、后端代理、登录态全都现成）；提交、合并、推送、部署是 ⑤ 步，由小前端在 xiaoqian-manager 的 deploy 阶段手动完成。AgentTeam 全程不触碰任何提交与远程写操作。
+> **收尾边界（铁律，2026-10-12 修订：不再用 worktree）**：AgentTeam **直接在主仓基准分支工作区里改代码**，改动以**未提交**形式留在工作区，**不进行 add / commit / push 任何代码**。基准分支= `febot.config.json` 的 `branches.default`（默认 `dev`，非 master），主仓 checkout 常驻该分支。人工验收**也就在这个工作区上跑 dev server**（不再单列步骤，这是放弃 worktree 换来的：依赖、`.env`、后端代理、登录态全都现成）；提交、合并、推送、部署是 ④ 步，由小前端在 xiaoqian-manager 的 deploy 阶段手动完成。AgentTeam 全程不触碰任何提交与远程写操作。
 >
 > **隔离怎么保证（替代 worktree 的两条）**：
-> ① **开工门禁** —— init 阶段校验主仓在固定分支且工作区干净，脏就停（上一条需求必须已在 ⑤ 步提交掉）；
+> ① **开工门禁** —— init 阶段校验主仓在固定分支且工作区干净，脏就停（上一条需求必须已在 ④ 步提交掉）；
 > ② **改动白名单** —— coder/reviewer 只认 plan.md「将改动文件清单」内的文件，收尾按它校验。
 > 因此**同一仓库同一时间只能跑一个需求**（file-lock 的并行只在不同仓之间成立）。
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { TasksFile, type Task } from "@/lib/domain/schema";
+import { STAGE_DEFS, TasksFile, type Task } from "@/lib/domain/schema";
 
 // 仅服务端可用（node:fs）。浏览器端严禁 import 本文件。
 //
@@ -34,6 +34,40 @@ function writePayload(tasks: Task[]): void {
   fs.renameSync(tmp, TASKS_FILE);
 }
 
+// 旧数据兼容：阶段从 4 个收敛为 3 个（去掉 test）。必须在 safeParse 之前做，
+// 因为 test 已不在 Stage.key 枚举里，先解析会直接失败。
+function normalizeStages(raw: unknown): unknown {
+  const list = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+  const byKey = new Map(list.map((s) => [String(s?.key ?? ""), s]));
+  const stages: Record<string, unknown>[] = STAGE_DEFS.map((d) => {
+    const found = byKey.get(d.key);
+    return found ? { ...found } : { key: d.key, name: d.name };
+  });
+  // 编码已开始（coder != pending）但计划还不是 done 的历史数据：补成 done，
+  // 否则进度会永远停在 1/3。
+  const planer = stages.find((s) => s.key === "planer");
+  const coder = stages.find((s) => s.key === "coder");
+  if (planer && coder && coder.status !== "pending" && planer.status !== "done") {
+    planer.status = "done";
+    planer.finishedAt =
+      planer.finishedAt ?? coder.startedAt ?? new Date().toISOString();
+  }
+  return stages;
+}
+
+function normalizeRawTasks(json: unknown): unknown {
+  if (!json || typeof json !== "object") return json;
+  const tasks = (json as { tasks?: unknown }).tasks;
+  if (!Array.isArray(tasks)) return json;
+  return {
+    ...(json as object),
+    tasks: tasks.map((t) => {
+      if (!t || typeof t !== "object") return t;
+      return { ...(t as object), stages: normalizeStages((t as { stages?: unknown }).stages) };
+    }),
+  };
+}
+
 export function readTasks(): { tasks: Task[]; updatedAt: string } {
   if (!fs.existsSync(TASKS_FILE)) return { tasks: [], updatedAt: "" };
   const raw = fs.readFileSync(TASKS_FILE, "utf8");
@@ -43,7 +77,7 @@ export function readTasks(): { tasks: Task[]; updatedAt: string } {
   } catch {
     throw new Error(`tasks.json is not valid JSON: ${TASKS_FILE}`);
   }
-  const parsed = TasksFile.safeParse(json);
+  const parsed = TasksFile.safeParse(normalizeRawTasks(json));
   if (!parsed.success) {
     throw new Error(`tasks.json failed schema validation: ${TASKS_FILE}`);
   }
@@ -115,7 +149,12 @@ export function mergeTasks(
     for (const inc of incoming) {
       const existing = byId.get(inc.id);
       if (existing) {
-        byId.set(inc.id, { ...inc, stages: existing.stages });
+        // 阶段进度与规划整理后的描述都是本地人工产物，同步时保留
+        byId.set(inc.id, {
+          ...inc,
+          stages: existing.stages,
+          plannedDescription: existing.plannedDescription,
+        });
         updated++;
       } else {
         byId.set(inc.id, inc);

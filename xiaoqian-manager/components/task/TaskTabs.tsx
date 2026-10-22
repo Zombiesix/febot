@@ -4,7 +4,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Task } from "@/lib/domain/schema";
 
 export default function TaskTabs({ task }: { task: Task }) {
-  const desc = [task.description, task.assignDescription]
+  const refined = task.plannedDescription.trim();
+  const desc = [refined || task.description, task.assignDescription]
     .filter(Boolean)
     .join("\n\n———— 分配任务说明 ————\n\n");
 
@@ -20,6 +21,11 @@ export default function TaskTabs({ task }: { task: Task }) {
         </TabsTrigger>
       </TabsList>
       <TabsContent value="desc">
+        {refined && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            描述已按规划整理（平台原文仍保留在协作平台）
+          </p>
+        )}
         <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/20 px-4 py-3 text-sm leading-relaxed">
           {desc || "（无）"}
         </pre>

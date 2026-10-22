@@ -4,9 +4,9 @@ import path from "node:path";
 import type { Task } from "@/lib/domain/schema";
 import { updateTask } from "@/lib/server/store";
 
-// 计划节点「开始」：弹一个新终端窗口在 febot 根目录跑交互式 claude `/pipeline <任务ID>`，
-// 一次覆盖 计划+写代码 两个阶段，并在正常收工时接续置完成 人工测试。窗口关闭（进程退出）即收尾：
-// exit 0 → 计划/写代码/人工测试 三阶段自动 done；非 0 → 保留 active 并写错误 note。
+// 「写代码」节点的 ▶：弹一个新终端窗口在 febot 根目录跑交互式 claude `/pipeline <任务ID>`。
+// 点 ▶ 即视为第 ② 步（计划）已完成，所以启动时把 planer 置 done、coder 置 active；
+// 窗口关闭（进程退出）即收尾：exit 0 → coder done；非 0 → coder 保留 active 并写错误 note。
 //
 // 已知边界：仅单进程有效（与 store.ts 同一前提）；dev server 重启会丢 exit 回调，
 // 阶段停在 active，用 StageSheet 手动收尾。
@@ -34,7 +34,7 @@ function fmtLocal(d: Date): string {
 }
 
 // 字段格式对齐 pipeline-feed 的抽取契约：首行 `# ` 标题 + 元信息行 + 问题描述/分配任务说明
-function renderPlanFile(task: Task): string {
+export function renderPlanFile(task: Task): string {
   const alias = `R-${task.id.slice(-6)}`;
   const meta = [
     `任务ID: ${task.id}`,
@@ -54,7 +54,9 @@ function renderPlanFile(task: Task): string {
     task.attachments.length > 0
       ? task.attachments.map((a) => `- ${a}`).join("\n")
       : "（无）";
-  return `# ${task.title}\n\n${meta}\n\n## 问题描述\n\n${task.description || "（空）"}\n\n## 分配任务说明\n\n${task.assignDescription || "（空）"}\n\n## 附件\n\n${attachments}\n`;
+  // 优先使用研发人员在「计划」节点整理后的描述
+  const description = task.plannedDescription.trim() || task.description || "（空）";
+  return `# ${task.title}\n\n${meta}\n\n## 问题描述\n\n${description}\n\n## 分配任务说明\n\n${task.assignDescription || "（空）"}\n\n## 附件\n\n${attachments}\n`;
 }
 
 function writePlanFile(task: Task): string {
@@ -69,15 +71,25 @@ export async function startPipeline(task: Task): Promise<Task> {
 
   const planFile = writePlanFile(task);
 
-  // 先置 active，再 spawn：exit 回调里依赖「阶段已是 active」做守卫，顺序不能反
+  // 先置状态，再 spawn：exit 回调里依赖「coder 已是 active」做守卫，顺序不能反。
+  // 点 ▶ = 计划阶段已拍板，因此 planer 直接收口为 done。
   const now = new Date().toISOString();
   const active = await updateTask(task.id, (t) => ({
     ...t,
-    stages: t.stages.map((s) =>
-      s.key === "planer" || s.key === "coder"
-        ? { ...s, status: "active", startedAt: s.startedAt ?? now, finishedAt: null }
-        : s
-    ),
+    stages: t.stages.map((s) => {
+      if (s.key === "planer" && s.status !== "done") {
+        return {
+          ...s,
+          status: "done",
+          startedAt: s.startedAt ?? now,
+          finishedAt: s.finishedAt ?? now,
+        };
+      }
+      if (s.key === "coder") {
+        return { ...s, status: "active", startedAt: s.startedAt ?? now, finishedAt: null };
+      }
+      return s;
+    }),
     trajectory: [
       ...t.trajectory,
       {
@@ -109,13 +121,11 @@ export async function startPipeline(task: Task): Promise<Task> {
       { cwd: FEBOT_ROOT, windowsHide: false, stdio: "ignore" }
     );
   } catch (e) {
-    // 窗口没弹起来：把两个阶段退回未开始，别留一个虚假的进行中
+    // 窗口没弹起来：把 coder 退回未开始，别留一个虚假的进行中（planer 保持 done）
     await updateTask(task.id, (t) => ({
       ...t,
       stages: t.stages.map((s) =>
-        s.key === "planer" || s.key === "coder"
-          ? { ...s, status: "pending", startedAt: null }
-          : s
+        s.key === "coder" ? { ...s, status: "pending", startedAt: null } : s
       ),
     }));
     throw e;
@@ -130,17 +140,10 @@ export async function startPipeline(task: Task): Promise<Task> {
     updateTask(task.id, (t) => ({
       ...t,
       stages: t.stages.map((s) => {
-        if (s.key === "planer" || s.key === "coder") {
-          if (s.status !== "active") return s;
-          return ok
-            ? { ...s, status: "done", finishedAt: s.finishedAt ?? finishedAt }
-            : { ...s, note: s.note || `Claude 退出码 ${code}` };
-        }
-        // 人工测试：流水线正常收工（exit 0）时一并置完成；异常退出不动它
-        if (s.key === "test" && ok && s.status !== "done") {
-          return { ...s, status: "done", finishedAt: s.finishedAt ?? finishedAt };
-        }
-        return s;
+        if (s.key !== "coder" || s.status !== "active") return s;
+        return ok
+          ? { ...s, status: "done", finishedAt: s.finishedAt ?? finishedAt }
+          : { ...s, note: s.note || `Claude 退出码 ${code}` };
       }),
       trajectory: [
         ...t.trajectory,

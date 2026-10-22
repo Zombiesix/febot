@@ -176,6 +176,7 @@ export function rowToTask(row: TwRow, detail: TwRow | null, traj: TwRow[]): Task
     stages: createStages(),
     trajectory: mapTrajectory(traj),
     description: htmlToText(d.demand_text || row.description),
+    plannedDescription: "",
     assignDescription: htmlToText(d.assign_description || row.assign_description),
     attachments: [...new Set(imgs)],
     syncedAt: new Date().toISOString(),

@@ -49,7 +49,6 @@ export function stageVisual(status: StageStatus): StageVisual {
 export const STAGE_ICONS: Record<StageKey, string> = {
   planer: "ClipboardList",
   coder: "Code2",
-  test: "FlaskConical",
   deploy: "Rocket",
 };
 
@@ -61,6 +60,5 @@ export interface StageFlowEdge {
 
 export const STAGE_EDGES: StageFlowEdge[] = [
   { id: "planer->coder", source: "planer", target: "coder" },
-  { id: "coder->test", source: "coder", target: "test" },
-  { id: "test->deploy", source: "test", target: "deploy" },
+  { id: "coder->deploy", source: "coder", target: "deploy" },
 ];

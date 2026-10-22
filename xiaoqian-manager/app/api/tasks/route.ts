@@ -20,9 +20,16 @@ export async function GET(req: Request) {
     if (moduleFilter) {
       tasks = tasks.filter((t) => t.module === moduleFilter);
     }
-    // 列表不返回 trajectory（体积大），展开时走 /api/tasks/[id]
+    // 列表不返回 trajectory 与大段描述（体积大），展开时走 /api/tasks/[id]
     const list = tasks.map(
-      ({ trajectory: _traj, description: _desc, assignDescription: _ad, attachments: _at, ...rest }) => rest
+      ({
+        trajectory: _traj,
+        description: _desc,
+        plannedDescription: _pd,
+        assignDescription: _ad,
+        attachments: _at,
+        ...rest
+      }) => rest
     );
     return NextResponse.json({ tasks: list, updatedAt });
   } catch (e) {

@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-// 固定四节点：planner 计划 -> coder 写代码 -> 人工测试 -> 上传部署
+// 固定三节点：planner 计划 -> coder 写代码 -> 上传部署（对应总流程 ②③④）
 // key 保留用户原文 "planer"
-export const STAGE_KEYS = ["planer", "coder", "test", "deploy"] as const;
+export const STAGE_KEYS = ["planer", "coder", "deploy"] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
 
 export const StageStatus = z.enum(["pending", "active", "done"]);
@@ -11,7 +11,6 @@ export type StageStatus = z.infer<typeof StageStatus>;
 export const STAGE_DEFS: { key: StageKey; name: string }[] = [
   { key: "planer", name: "计划" },
   { key: "coder", name: "写代码" },
-  { key: "test", name: "人工测试" },
   { key: "deploy", name: "上传部署" },
 ];
 
@@ -58,9 +57,11 @@ export const Task = z.object({
   createdName: z.string().default(""),
   createdTime: z.string().default(""),
   version: z.string().default(""),
-  stages: z.array(Stage).length(4),
+  stages: z.array(Stage).length(STAGE_DEFS.length),
   trajectory: z.array(TrajectoryItem).default([]),
   description: z.string().default(""),
+  // 研发人员在「计划」节点整理后的描述；为空时回退到平台原文 description
+  plannedDescription: z.string().default(""),
   assignDescription: z.string().default(""),
   attachments: z.array(z.string()).default([]),
   syncedAt: z.string(),

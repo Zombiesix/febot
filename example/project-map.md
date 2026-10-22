@@ -27,4 +27,4 @@ jenkins 地址前缀在 `febot.config.json` 的 `jenkins.base`，仓库到 job �
 - 新增 PM 卡时先查此表；查不到 → 在 feed 时向负责人要，确认后回填，不许猜。
 - 仓库目录以 `febot.config.json` 的 `repoRoot` 为基准，改动**直接落在该仓的基准分支工作区**里(不建 worktree、不切分支)。
 - **基准分支**：从 `febot.config.json` 的 `branches.default` 读取(默认 `dev`)；候选分支见 `branches.candidates`。主仓 checkout 常驻该分支。
-- 改动以**未提交**形式留在工作区(不 add/commit)，由 ⑤ 步人工提交；开工前该工作区必须是干净的。
+- 改动以**未提交**形式留在工作区(不 add/commit)，由 ④ 步人工提交；开工前该工作区必须是干净的。

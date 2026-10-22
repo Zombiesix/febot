@@ -4,7 +4,7 @@
 
 | 主线                         | 干什么                                                   | 入口                                                       | 谁在用           |
 | ---------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- | ---------------- |
-| **① 研发流水线**（6 步闭环） | 获取需求 → AI 写代码 → 人工测试 → 提交合并 → 填工时      | [xiaoqian-manager](xiaoqian-manager/)（宿主）+ `/pipeline` | 小前端           |
+| **① 研发流水线**（5 步闭环） | 获取需求 → 规划 → AI 编码/审查/修复 → 提交合并 → 填工时  | [xiaoqian-manager](xiaoqian-manager/)（宿主）+ `/pipeline` | 小前端           |
 | **② 业务助手 assistant**     | 随时问业务：这个模块干嘛的、这个字段谁改的、权限在哪判的 | Claude Code 内 `/assistant`                                | 任何要懂业务的人 |
 
 两条线**不互调、不共享 bank**，但都站在同一层底座上：
@@ -160,36 +160,38 @@ python scripts/ensure-banks.py
 
 # 第一部分：研发流水线（①）
 
-## 1. 总流程：一条 6 步流水线（宿主 = xiaoqian-manager）
+## 1. 总流程：一条 5 步流水线（宿主 = xiaoqian-manager）
 
 > 所有流程围绕 `xiaoqian-manager` 这个 Web 项目展开。`小前端` = 用这套系统的研发人（同时是协作平台的 `username` 过滤条件）。
 
 ```text
- ① 获取需求             ② 规划+编码(AI)        ③ 审查+修复(AI)        ④ 人工测试          ⑤ 提交合并        ⑥ 填工时
- 小前端 点同步            AgentTeam               AgentTeam             小前端 本地测       小前端 手动       小前端 触发
- ─────────┼──────────────┼──────────────────────┼──────────────────────┼─────────────────┼──────────────┼──────────
-           │  协作平台     │  自动                                   │                   │             │
-   xiaoqian │ fetch       │  recon → 出计划 → 拍板 → 写码 → 审查 → 修复 │  页面效果手工测    │  提交上远程    │  回写工时
-   -manager │ synced →    │                                          │  通过 → 点完成     │  点完成        │
-            │ tasks.json  │                                          │                   │             │
-            └────────────┴──────────────────────────────────────────┴─────────────────┴─────────────┴──────────
+ ① 获取需求            ② 规划                ③ 编码+审查+修复(AI)     ④ 提交合并          ⑤ 填写工时
+ 小前端 点同步         小前端 整理描述         AgentTeam 全自动          小前端 手动         小前端 触发
+ ─────────┼─────────────┼─────────────────────┼────────────────────────┼───────────────────┼──────────
+           │  协作平台    │  AI 出计划/人工拍板  │  写码 → 审查 → 修复      │  提交/推送/合并     │  回写工时
+   xiaoqian │ fetch       │                     │  (blocker ≤2 轮)         │  点完成             │
+   -manager │ synced →    │                     │                          │                     │
+            │ tasks.json  │                     │                          │                     │
+            └────────────┴─────────────────────┴──────────────────────────┴─────────────────────┴──────────
 ```
 
-| 步骤                                      | 做什么                                      | 在哪执行                     | 由谁操作          | 说明                                                       |
-| ----------------------------------------- | ------------------------------------------- | ---------------------------- | ----------------- | ---------------------------------------------------------- |
-| **① 获取需求**                            | 从协作平台(teamwork)拉取需求列表/详情入库   | xiaoqian-manager             | 小前端 点击同步   | 过滤条件 `user=小前端`，落盘 `tasks.json`                  |
-| **②③ 规划+编码 / 审查+修复（AgentTeam）** | AI 出计划 → 人工拍板 → 写代码 → 审查 → 修复 | febot 家 `/pipeline` 剧本    | AI + 小前端拍板   | **只用 code-indexer、swagger-mcp-server 洞察代码**         |
-| **④ 人工测试**                            | 在浏览器/页面做人工效果测试                 | xiaoqian-manager test 阶段   | 小前端 点完成     | 通过才进入下一步                                           |
-| **⑤ 提交合并**                            | 手工把代码提交、合并到远程                  | xiaoqian-manager deploy 阶段 | 小前端 手动点完成 | 选仓库 + 目标分支，触发 git 提交推送/cherry-pick           |
-| **⑥ 填工时**                              | 把本次研发工时写回协作平台                  | xiaoqian-manager 工时        | 小前端 触发       | 复用协作平台登录态                                         |
+| 步骤                                      | 做什么                                                       | 在哪执行                      | 由谁操作          | 说明                                                       |
+| ----------------------------------------- | ------------------------------------------------------------ | ----------------------------- | ----------------- | ---------------------------------------------------------- |
+| **① 获取需求**                            | 从协作平台(teamwork)拉取需求列表/详情入库                    | xiaoqian-manager              | 小前端 点击同步   | 过滤条件 `user=小前端`，落盘 `tasks.json`                  |
+| **② 规划**                                | 小前端整理/修改需求描述 → AI 出实现计划 → 人工拍板           | xiaoqian-manager + `/pipeline` | 小前端 + AI       | 整理后的描述落 `plannedDescription`，作为 AI 的统一输入    |
+| **③ 编码+审查+修复**                      | AI 写代码 → 审查 → 修复 blocker                              | febot 家 `/pipeline` 剧本     | AI 全自动         | **只用 code-indexer、swagger-mcp-server 洞察代码**；入口是「写代码」节点的 ▶ |
+| **④ 提交合并**                            | 手工把代码提交、合并到远程                                   | xiaoqian-manager deploy 阶段  | 小前端 手动点完成 | 选仓库 + 目标分支，触发 git 提交推送/cherry-pick           |
+| **⑤ 填写工时**                            | 把本次研发工时写回协作平台                                   | xiaoqian-manager 工时         | 小前端 触发       | 复用协作平台登录态                                         |
 
-### 一个重要的边界（②③ vs ⑤）
+> **▶ 在「写代码」节点上**：点击后 `/pipeline` 会话内先产出 AI 计划并等待人工拍板，再进入编码；文档上把计划产物归入第 ② 步。
+
+### 一个重要的边界（③ vs ④）
 
 **AgentTeam（②③）直接在主仓基准分支的工作区里改代码，改动以「未提交」形式留下，绝不做 add / commit / push 远程**：
 
 - 它改的就是 `<repoRoot>/<仓>` 这个**主仓工作区**（停在 `branches.default`，默认 `dev`，非 master），**不建 worktree、不切分支、不提交**。
-- 好处是 ④ 人工测试**就在这个工作区上跑 dev server**，依赖、`.env`、后端代理、登录态全都现成。
-- **远程提交、push、合并到目标分支**是 ⑤ 步，由 `小前端` 在 xiaoqian-manager 的 deploy 阶段手动完成（含 cherry-pick）。该阶段的代码本就基于主仓工作区，且会拒绝分离头指针状态，与这套模型天然一致。
+- 好处是**人工验收就在这个工作区上跑 dev server**，依赖、`.env`、后端代理、登录态全都现成（人工验收不再单列步骤）。
+- **远程提交、push、合并到目标分支**是 ④ 步，由 `小前端` 在 xiaoqian-manager 的 deploy 阶段手动完成（含 cherry-pick）。该阶段的代码本就基于主仓工作区，且会拒绝分离头指针状态，与这套模型天然一致。
 - 这样 AI 永远接触不到远程写操作，出问题也是"本地可回滚、远程有人把关"。
 
 > **隔离靠什么（2026-10-12 起弃用 worktree）**：① **开工门禁**——init 阶段校验主仓在基准分支且 `git status --porcelain` 为空，脏就停下来等人工提交；② **改动白名单**——coder/reviewer 只认 plan.md「将改动文件清单」内的文件，收尾按它校验。
@@ -223,7 +225,7 @@ python scripts/ensure-banks.py
 5. **tier 建议**：改文案/单文件小修 → light；新增组件、动 store/表格/页面、多步任务 → full；拿不准标 full 并写明原因。
 6. **到此为止** —— 不切分支、不建 worktree、不动真实源码，回到流水线继续。
 
-> **开工门禁（feed 阶段前置校验）**：主仓 `<repoRoot>/<仓库>` 必须 `HEAD == branches.default` 且 `git status --porcelain` 为空；不满足就停下来让负责人先在 ⑤ 步提交，绝不允许带着脏工作区开工。这是替代 worktree 的隔离手段。
+> **开工门禁（feed 阶段前置校验）**：主仓 `<repoRoot>/<仓库>` 必须 `HEAD == branches.default` 且 `git status --porcelain` 为空；不满足就停下来让负责人先在 ④ 步提交，绝不允许带着脏工作区开工。这是替代 worktree 的隔离手段。
 
 ### AgentTeam 内部流程（full）
 
@@ -346,10 +348,10 @@ yarn assistant:map <repoRoot>/<仓>
 | 总流程步骤             | 触发点                             | 实现位置                                                                                 |
 | ---------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
 | ① 获取需求             | 同步按钮(Sync)                     | `lib/server/teamwork/client.ts`(fetchList,user=小前端) + `mapper.ts` → `data/tasks.json` |
-| ②③ 规划+编码+审查+修复 | 卡片「开始」→ 拉起 `claude /pipeline <任务ID>` | 见 §2；`/pipeline` 剧本 + 4 subagent（xiaoqian 只传**任务ID** + 临时计划 md，不传路径） |
-| ④ 人工测试             | test 阶段 点完成                   | `components/task/StageSheet.tsx`(test stage)                                             |
-| ⑤ 提交合并             | deploy 阶段 选仓库+目标分支 点完成 | `lib/server/git/deploy.ts`(pull→commit→push→cherry-pick→push)                            |
-| ⑥ 填工时               | 工时入口                           | `lib/server/teamwork/client.ts` 的 `saveWorkHours`                                       |
+| ② 规划                 | 「计划」节点 → 弹框修改描述并保存   | `components/task/StageSheet.tsx`(planer stage) → `plannedDescription`                     |
+| ③ 编码+审查+修复       | 「写代码」节点 ▶ → 拉起 `claude /pipeline <任务ID>` | 见 §2；`/pipeline` 剧本 + 4 subagent（xiaoqian 只传**任务ID** + 临时计划 md，不传路径） |
+| ④ 提交合并             | deploy 阶段 选仓库+目标分支 点完成 | `lib/server/git/deploy.ts`(pull→commit→push→cherry-pick→push)                            |
+| ⑤ 填写工时             | 工时入口                           | `lib/server/teamwork/client.ts` 的 `saveWorkHours`                                       |
 
 ## 10. 目录约定
 
@@ -360,7 +362,7 @@ yarn assistant:map <repoRoot>/<仓>
 ```text
 febot.config.json         主配置(本地生成，不入库)
 .claude/
-  commands/pipeline.md      流水线剧本（①的②③步）
+  commands/pipeline.md      流水线剧本（②③步）
   agents/{planner,coder,reviewer}.md    流水线 subagent
   agents/assistant-qa.md                助手问答 subagent（答案长时用）
   skills/pipeline-feed/                 喂食 skill
@@ -381,7 +383,7 @@ docs/hindsight-*.md          Hindsight 方案与接入
 scripts/recon.mjs            流水线事实底稿
 scripts/hindsight-memo.py    流水线侧记忆 CLI
 scripts/assistant-{memo,map,probe}.mjs   助手侧记忆 CLI / 地图 / 探针
-xiaoqian-manager/        小千管理(Next.js) —— 全部流程的宿主(①④⑤⑥)
+xiaoqian-manager/        小千管理(Next.js) —— 全部流程的宿主(①④⑤)
 code-indexer/            Vue3 仓库静态索引器(CLI + MCP),两条线共用
 swagger-mcp-server/      swagger-multi MCP 补丁版服务器,②③步用
 om/                      发版看板(独立,见 §16)
@@ -391,7 +393,7 @@ om/                      发版看板(独立,见 §16)
 
 - `repoRoot`（默认 `./gitlab`）下，每个仓一份**主仓 checkout**，不建 worktree、不切分支。
 - **基准分支**：读 `febot.config.json` 的 `branches.default`（默认 `dev`，非 master），主仓**常驻**该分支。
-- coder 直接改这里的工作区文件，改动以**未提交**形式留下（**不 add/commit/push，见 §1 边界**）；④ 人工测试也在这里跑 dev server。
+- coder 直接改这里的工作区文件，改动以**未提交**形式留下（**不 add/commit/push，见 §1 边界**）；人工验收也在这里跑 dev server（不再单列步骤）。
 - **开工前必须干净**：init 阶段校验 `git status --porcelain` 为空，脏就停（见 §11 门禁）。**同仓同时只能跑一个需求。**
 - 助手**只读** `<repoRoot>/<仓>`：不写任何文件、不建 worktree。
 
@@ -416,7 +418,7 @@ om/                      发版看板(独立,见 §16)
 9. coder/reviewer 只认 plan.md「将改动文件清单」，不越界、不动清单外的改动
 10. subagent 只收摘要,不接完整代码/推理
 11. 敏感文件(.env\*、febot.config.json、hindsight.env)必须人工审批
-12. 人工验收后才提交合并——**AgentTeam 只留未提交改动，提交/推送是 ⑤ 步，由人做**
+12. 人工验收后才提交合并——**AgentTeam 只留未提交改动，提交/推送是 ④ 步，由人做**
 
 ### 全局约束（对流水线主对话与所有 subagent 生效）
 
@@ -514,7 +516,7 @@ om/                      发版看板(独立,见 §16)
 - **pipeline.md**：init recall / decisions retain / done reflect 人工门禁 / fixing retain / reviewer 画像
 - **planner.md**：记忆冲突 → 升级为 M1/M2 编号问题
 - **reviewer.md**：口味符合度 + 重复问题标记
-- **stage/route.ts**：⑤ deploy 成功 → retain「已部署」状态
+- **stage/route.ts**：④ deploy 成功 → retain「已部署」状态
 - 全程**软降级**：Hindsight 没起 → 返回空/跳过，绝不禁流水线
 
 **助手侧**
@@ -529,7 +531,7 @@ om/                      发版看板(独立,见 §16)
 
 1. 跑一个真实需求走完整流水线，验证各阶段 recall/retain 是否按预期触发
 2. 观察 recall 命中率，必要时调 budget 档位
-3. 拍板 retain 积累 ≥10 条后，评估是否开 ◇ 线（①④⑥ 可选阶段）
+3. 拍板 retain 积累 ≥10 条后，评估是否开 ◇ 线（①④⑤ 可选阶段）
 
 ### 助手层
 
@@ -563,7 +565,7 @@ P0–P4 已实施完毕（记忆 CLI / 项目地图 / 答题 skill / 按需存 /
 - **改流程剧本**：编辑 `.claude/commands/pipeline.md`（委派话术、阶段、轨道约束）。
 - **改喂食逻辑**：编辑 `.claude/skills/pipeline-feed/SKILL.md`。
 - **改模板**：编辑 `docs/requirements/_template/*`。
-- **改 ①④⑤⑥**：编辑 `xiaoqian-manager/`（`lib/server/git`、`lib/server/teamwork`、`components`）。
+- **改 ①④⑤**：编辑 `xiaoqian-manager/`（`lib/server/git`、`lib/server/teamwork`、`components`）。
 - **改助手行为**：编辑 `.claude/skills/assistant/SKILL.md`（编排）、`references/service-protocol.md`（答话协议）、`references/what-to-store.md`（存/不存判断）、`.claude/agents/assistant-qa.md`（隔离上下文）。
 - 三个流水线 agent 统一 `permission: acceptEdits`，如要更严，单独收紧。
 

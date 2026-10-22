@@ -42,6 +42,8 @@ export default function TaskRow({
   onStartPipeline: (taskId: string) => void;
 }) {
   const doneCount = task.stages.filter((s) => s.status === "done").length;
+  const stageTotal = task.stages.length;
+  const progress = stageTotal ? (doneCount / stageTotal) * 100 : 0;
   const [copied, setCopied] = useState(false);
 
   const copyTitle = async () => {
@@ -98,9 +100,9 @@ export default function TaskRow({
             </div>
           </div>
           <div className="hidden w-40 shrink-0 items-center gap-2 sm:flex">
-            <Progress value={doneCount * 25} className="h-1.5" />
+            <Progress value={progress} className="h-1.5" />
             <span className="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">
-              {doneCount}/4
+              {doneCount}/{stageTotal}
             </span>
           </div>
         </div>
@@ -109,7 +111,7 @@ export default function TaskRow({
         <TaskMeta task={task} />
         <div className="mt-3 rounded-lg border bg-muted/20 p-2">
           <div className="overflow-x-auto">
-            <div className="min-w-[1040px]">
+            <div className="min-w-[820px]">
               <TaskFlow
                 stages={task.stages}
                 onOpen={onOpenStage}
@@ -118,7 +120,7 @@ export default function TaskRow({
             </div>
           </div>
           <p className="mt-1 px-2 text-xs text-muted-foreground">
-            点击节点可更新阶段状态；计划节点点 ▶ 可一键开始流水线（计划+写代码）
+            点击节点可更新阶段状态；点「计划」节点可整理需求描述，点「写代码」节点 ▶ 可开始流水线（AI 编码+审查+修复）
           </p>
         </div>
         <div className="mt-3">
