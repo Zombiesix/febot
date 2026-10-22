@@ -108,7 +108,9 @@ export async function PATCH(
           startedAt:
             status === "pending" ? null : (s.startedAt ?? now),
           finishedAt:
-            status === "done" ? (s.finishedAt ?? now) : null,
+            status === "done" || status === "failed"
+              ? (s.finishedAt ?? now)
+              : null,
         };
       }),
     }));

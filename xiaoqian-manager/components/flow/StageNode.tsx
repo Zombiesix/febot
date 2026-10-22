@@ -9,6 +9,7 @@ import {
   Loader2,
   Play,
   Rocket,
+  XCircle,
 } from "lucide-react";
 import type { Stage } from "@/lib/domain/schema";
 import { stageVisual } from "@/lib/domain/stage-visual";
@@ -34,12 +35,16 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
   const v = stageVisual(stage.status);
   const Icon = ICONS[stage.key];
   const canStart =
-    stage.key === "coder" && stage.status === "pending" && !!onStartPipeline;
+    stage.key === "coder" &&
+    (stage.status === "pending" || stage.status === "failed") &&
+    !!onStartPipeline;
 
   const subtitle =
     stage.status === "done" && stage.finishedAt
       ? fmtDateTime(stage.finishedAt)
-      : stage.owner || "未指派";
+      : stage.status === "failed"
+        ? stage.note || "流水线未完成"
+        : stage.owner || "未指派";
 
   return (
     <div
@@ -49,6 +54,9 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
       <div className={`absolute inset-x-0 top-0 h-[3px] rounded-t-xl bg-gradient-to-r ${v.bar}`} />
       {stage.status === "done" && (
         <CheckCircle2 className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-background text-primary" />
+      )}
+      {stage.status === "failed" && (
+        <XCircle className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-background text-destructive" />
       )}
       {stage.status === "active" && (
         <span className="absolute right-3 top-3 flex h-2 w-2">

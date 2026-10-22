@@ -5,7 +5,8 @@ import { z } from "zod";
 export const STAGE_KEYS = ["planer", "coder", "deploy"] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
 
-export const StageStatus = z.enum(["pending", "active", "done"]);
+// failed 只由流水线收口写入：窗口异常退出/未产出完成标记，停在终态以免前端无限轮询
+export const StageStatus = z.enum(["pending", "active", "done", "failed"]);
 export type StageStatus = z.infer<typeof StageStatus>;
 
 export const STAGE_DEFS: { key: StageKey; name: string }[] = [

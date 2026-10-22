@@ -10,7 +10,7 @@ export interface StageVisual {
   /** 顶部状态条渐变类名 */
   bar: string;
   /** Badge 变体 */
-  badge: "outline" | "default" | "secondary";
+  badge: "outline" | "default" | "secondary" | "destructive";
   badgeLabel: string;
   text: string;
 }
@@ -38,6 +38,14 @@ const VISUALS: Record<StageStatus, StageVisual> = {
     bar: "from-primary to-primary/60",
     badge: "secondary",
     badgeLabel: "已完成",
+    text: "text-foreground",
+  },
+  failed: {
+    card: "border-destructive/40 bg-destructive/[0.03]",
+    icon: "bg-destructive/10 text-destructive",
+    bar: "from-destructive/70 to-destructive/30",
+    badge: "destructive",
+    badgeLabel: "失败",
     text: "text-foreground",
   },
 };

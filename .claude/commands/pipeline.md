@@ -23,7 +23,7 @@
 
 会话开始时，若该需求尚未接入流水线（`state.json` 不存在 / 无 `docs/requirements/<别名>/`），调用 **pipeline-feed** skill，参数 = PM 计划文件路径。**计划文件一律是临时文件**，放 `xiaoqian-manager/data/temp/`，正常收尾后删除：
 
-- 任务ID流程：文件由 xiaoqian-manager「写代码」节点的 ▶ 预生成在 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian 侧 exit 0 时已自行删除）；人工 `/pipeline <任务ID>` 启动而没有该文件时，主对话从 xiaoqian-manager 的 `data/tasks.json` 找到对应任务、按同格式补写该临时文件（`## 问题描述` 取 `plannedDescription` 非空则用之，否则 `description`），再继续。
+- 任务ID流程：文件由 xiaoqian-manager「写代码」节点的 ▶ 预生成在 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian 侧确认完成标记后自行删除）；人工 `/pipeline <任务ID>` 启动而没有该文件时，主对话从 xiaoqian-manager 的 `data/tasks.json` 找到对应任务、按同格式补写该临时文件（`## 问题描述` 取 `plannedDescription` 非空则用之，否则 `description`），再继续。
 - **口头流程**：参数原文就是需求。主对话先落盘 `xiaoqian-manager/data/temp/R-oral-<MMDDHHmm>.md`：首行 `# <从描述提炼的标题，≤20字>`，`## 问题描述` 放描述原文；别名 = 文件名（`R-oral-<同一时间戳>`），由 pipeline-feed 从文件名取。后续阶段与任务ID流程完全一致。
 
 由 skill 完成脚手架：
@@ -168,7 +168,16 @@ python scripts/hindsight-memo.py reflect --bank li-expertise --query "本需求(
    - `git -C <repoRoot>/<仓库> status --porcelain` —— **只应出现本需求清单内的改动**；出现清单外文件 → 写 orchestrator-log 并停下来问负责人，不擅自清理别人的改动。
    - `git -C <repoRoot>/<仓库> diff --cached --name-only` —— **必须为空**（证明没有任何东西被暂存或提交）。
 4. 清 `file-lock.md` 中本需求条目。
-5. 删 init 时的计划临时文件（`rm -f xiaoqian-manager/data/temp/<启动时用的那个 md>`；任务ID流程可能已被 xiaoqian-manager 删过，rm -f 幂等；口头流程一定是主对话这里删）。
+5. 删 init 时的计划临时文件（`rm -f xiaoqian-manager/data/temp/<启动时用的那个 md>`；任务ID流程 xiaoqian-manager 会在收到完成标记后也删一次，rm -f 幂等；口头流程一定是主对话这里删）。
+6. **回写完成标记（任务ID流程必做，口头流程跳过）**——这是 xiaoqian-manager 判定成功的**唯一**依据：
+   用 Write 工具写 `xiaoqian-manager/data/temp/<任务ID>.done.json`，内容为一行 JSON：
+   ```json
+   {"taskId":"<任务ID>","requirement":"<别名>","phase":"done","finishedAt":"<当前时间 ISO8601>"}
+   ```
+   - `<任务ID>` 取 PM 计划文件元信息里的「任务ID」（也是计划文件名）。
+   - **必须放在第 3/5 步都做完之后最后写**：标记一出现，xiaoqian-manager 就会把「写代码」节点置 done 并删除计划文件。
+   - **没写标记 = 失败**：任何 fail-safe 停止、问题待答、中途放弃都**不要**写这个文件；窗口关闭时 xiaoqian-manager 会把「写代码」节点置为 failed 并附退出码/原因。
+   - 只写本地文件，不涉及提交与远程。
 
 ## 轨道约束
 

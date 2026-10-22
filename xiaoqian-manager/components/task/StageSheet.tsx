@@ -29,6 +29,7 @@ const STATUS_OPTIONS: { value: StageStatus; label: string }[] = [
   { value: "pending", label: "未开始" },
   { value: "active", label: "进行中" },
   { value: "done", label: "已完成" },
+  { value: "failed", label: "失败" },
 ];
 
 export default function StageSheet({
