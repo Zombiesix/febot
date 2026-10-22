@@ -46,6 +46,14 @@ const CONFIG = loadConfig();
 const TW = (CONFIG.teamwork && typeof CONFIG.teamwork === 'object') ? CONFIG.teamwork : {};
 const str = v => (typeof v === 'string' ? v.trim() : '');
 
+// ---- devplatform：项目最新版本号 ----
+const DP = (CONFIG.devplatform && typeof CONFIG.devplatform === 'object') ? CONFIG.devplatform : {};
+const DP_ROOT = str(DP.base) || 'https://devplatform.cnhis.com';
+const DP_TOKEN = str(DP.token);
+// 可选：项目名 → 平台应用名映射（平台按应用名精确匹配时用）
+const DP_APP_NAMES = (DP.appNames && typeof DP.appNames === 'object') ? DP.appNames : {};
+const DP_API = '/devplatform/devplatformVersion';
+
 // ---- teamwork 取数（cookie 过期时用 teamwork 段的账号密码自动重新登录刷新）----
 const BASE = str(TW.base);
 const TW_API_PATH = '/teamworkapi/tableReader/getTableData';
@@ -164,14 +172,23 @@ function latestDocStart() {
   return dt;
 }
 
+// 并发请求共用同一次重新登录，避免多用户同时 401 时重复登录、互相覆盖 cookie
+let reLoginPromise = null;
+function ensureLogin() {
+  if (!reLoginPromise) {
+    reLoginPromise = reLogin().finally(() => { reLoginPromise = null; });
+  }
+  return reLoginPromise;
+}
+
 async function fetchCurrentWeek(username) {
   // 配置里没塞 cookie 就先登录一次，避免拿空 cookie 去撞平台拿回一个含糊的失败
-  if (!TW_COOKIE) await reLogin();
+  if (!TW_COOKIE) await ensureLogin();
   const startVal = fmt(latestDocStart());
   const endVal = fmt(new Date());
   let json = await tableRequest(startVal, endVal, username);
   if (json && json.result === 'NO_LOGIN') {
-    await reLogin();
+    await ensureLogin();
     json = await tableRequest(startVal, endVal, username);
   }
   const rows = (json && json.map && Array.isArray(json.map.rows)) ? json.map.rows
@@ -188,9 +205,96 @@ async function fetchCurrentWeek(username) {
   return { ok: true, startVal, endVal, total, modules };
 }
 
+// 一次更新全部负责人：并发拉取，单个用户失败不影响其他人
+async function fetchCurrentWeekAll(users) {
+  if (!TW_COOKIE) await ensureLogin();
+  const startVal = fmt(latestDocStart());
+  const endVal = fmt(new Date());
+  const settled = await Promise.allSettled(users.map(u => fetchCurrentWeek(u)));
+  const byUser = {};
+  users.forEach((u, i) => {
+    const s = settled[i];
+    if (s.status === 'fulfilled') {
+      byUser[u] = { ok: true, total: s.value.total, modules: s.value.modules };
+    } else {
+      byUser[u] = { ok: false, error: (s.reason && s.reason.message) || String(s.reason) };
+    }
+  });
+  return { ok: true, startVal, endVal, users: byUser };
+}
+
+// ---- devplatform 版本同步 ----
+function dpHeaders() {
+  return {
+    'accept': 'application/json, text/plain, */*',
+    'content-type': 'application/json;charset=UTF-8',
+    'authorization': 'bearer ' + DP_TOKEN,
+    '_businessSystemName': 'develop-web',
+    'origin': DP_ROOT,
+    'referer': `${DP_ROOT}/develop/web/application-manage`,
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36'
+  };
+}
+
+async function dpRequest(path, payload) {
+  const resp = await fetch(DP_ROOT + DP_API + path, {
+    method: 'POST',
+    headers: dpHeaders(),
+    body: JSON.stringify(payload)
+  });
+  const text = await resp.text();
+  let json;
+  try { json = JSON.parse(text); } catch { throw new Error(`版本平台返回非 JSON，HTTP ${resp.status}: ${text.slice(0, 200)}`); }
+  if (!json || json.success === false || (json.code && json.code !== '00000')) {
+    throw new Error('版本平台返回失败：' + ((json && (json.msg || json.code)) || `HTTP ${resp.status}`));
+  }
+  return json;
+}
+
+// 最新大版本（records[0]）→ 该大版本下最新的小版本；没有小版本时回退大版本
+async function fetchLatestVersion(projectName) {
+  const applicationName = str(DP_APP_NAMES[projectName]) || projectName;
+  const main = await dpRequest('/getMainListPage', { applicationName, pageNum: 1, pageSize: 20 });
+  const records = (main.data && Array.isArray(main.data.records)) ? main.data.records : [];
+  if (!records.length) return { ok: false, applicationName, error: '版本平台未找到该应用' };
+  const big = records[0] || {};
+  const bigVersion = str(big.version);
+  let version = bigVersion;
+  if (bigVersion) {
+    const patch = await dpRequest('/getPatchList', {
+      applicationName,
+      applicationType: typeof big.applicationType === 'number' ? big.applicationType : 1,
+      pageNum: 1,
+      pageSize: 1000,
+      parentVersion: bigVersion,
+      type: 2
+    });
+    // 小版本接口的 data 直接是数组，按时间倒序
+    const list = Array.isArray(patch.data) ? patch.data
+      : (patch.data && Array.isArray(patch.data.records) ? patch.data.records : []);
+    const latest = list.find(x => str(x.version));
+    if (latest) version = str(latest.version);
+  }
+  return { ok: true, applicationName, version, bigVersion };
+}
+
+// 限量并发，避免一次打爆版本平台
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 function splitList(s) {
   if (!s) return [];
-  return String(s).split(/[\n,，、]/).map(x => x.trim()).filter(Boolean);
+  return String(s).split(/[\n;；、]/).map(x => x.trim()).filter(Boolean);
 }
 
 // 汇总每个负责人已抓取的「本周已完成」，任务名通过项目名关联 module
@@ -356,10 +460,55 @@ const server = http.createServer((req, res) => {
       }));
       return;
     }
+    // all=1：一次更新 febot.config.json 里配置的全部负责人
+    if (url.searchParams.get('all') === '1') {
+      let users = Array.isArray(TW.users) ? TW.users.map(str).filter(Boolean) : [];
+      if (!users.length && TW_USERNAME) users = [TW_USERNAME];
+      if (!users.length) {
+        send(res, 502, JSON.stringify({ error: '未配置负责人：请在 febot.config.json 的 teamwork.users 填写' }));
+        return;
+      }
+      fetchCurrentWeekAll(users)
+        .then(result => send(res, 200, JSON.stringify(result)))
+        .catch(e => send(res, 502, JSON.stringify({ error: e.message })));
+      return;
+    }
     const username = (url.searchParams.get('user') || '').trim() || TW_USERNAME;
     fetchCurrentWeek(username)
       .then(result => send(res, 200, JSON.stringify(result)))
       .catch(e => send(res, 502, JSON.stringify({ error: e.message })));
+    return;
+  }
+
+  // ---- 同步版本：从 devplatform 拉每个项目的最新版本号 ----
+  if (pathname === '/api/sync-versions' && req.method === 'GET') {
+    if (!DP_TOKEN) {
+      send(res, 502, JSON.stringify({ error: '未配置版本平台 token：请在 febot.config.json 的 devplatform.token 填写' }));
+      return;
+    }
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    } catch (e) {
+      if (e && e.code === 'ENOENT') data = EMPTY_DATA;
+      else { send(res, 500, JSON.stringify({ error: '读取 data.json 失败: ' + e.message })); return; }
+    }
+    const names = [...new Set((data.projects || []).map(p => str(p && p.name)).filter(Boolean))];
+    if (!names.length) {
+      send(res, 200, JSON.stringify({ ok: true, results: {} }));
+      return;
+    }
+    mapLimit(names, 4, async name => {
+      try {
+        return [name, await fetchLatestVersion(name)];
+      } catch (e) {
+        return [name, { ok: false, error: e.message }];
+      }
+    }).then(pairs => {
+      const results = {};
+      pairs.forEach(([name, r]) => { results[name] = r; });
+      send(res, 200, JSON.stringify({ ok: true, results }));
+    }).catch(e => send(res, 502, JSON.stringify({ error: e.message })));
     return;
   }
 

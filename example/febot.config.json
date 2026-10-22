@@ -20,5 +20,10 @@
     "cookie": "",
     "users": []
   },
+  "devplatform": {
+    "base": "",
+    "token": "",
+    "appNames": {}
+  },
   "nextDevOrigins": []
 }

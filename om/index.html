@@ -37,9 +37,11 @@
       </div>
 
       <div class="flex gap-2">
-        <button onclick="exportData()" class="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">导出</button>
         <button id="updateBtn" onclick="updateWeek()" class="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">♻ 一键更新</button>
+        <button onclick="completeAll()" class="px-3 py-2 text-sm rounded-lg border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50">✓ 一键完成</button>
+        <button id="syncVersionBtn" onclick="syncVersions()" class="px-3 py-2 text-sm rounded-lg border border-sky-300 bg-white text-sky-700 hover:bg-sky-50">⇅ 同步版本</button>
         <button onclick="resetData()" class="px-3 py-2 text-sm rounded-lg border border-rose-300 bg-white text-rose-600 hover:bg-rose-50">重置</button>
+        <button onclick="exportData()" class="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">导出</button>
       </div>
     </div>
   </header>
@@ -87,7 +89,7 @@
       <label class="block text-sm mb-1">进度 / 状态说明</label>
       <input id="pfStatusText" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
       <label class="block text-sm mb-1">本周新功能</label>
-      <textarea id="pfFeatures" rows="2" placeholder="新增了什么，多个用逗号/换行分隔" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
+      <textarea id="pfFeatures" rows="2" placeholder="新增了什么，多个用分号/换行分隔" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
       <label class="block text-sm mb-1">本周修复问题</label>
       <textarea id="pfFixes" rows="2" placeholder="修复了哪些问题" class="w-full px-3 py-2 mb-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"></textarea>
       <label class="block text-sm mb-1">备注</label>
@@ -300,6 +302,43 @@
       save();
     }
 
+    // ---- 同步版本：从开发平台拉取每个项目的最新版本号 ----
+    async function syncVersions() {
+      const projects = state.projects || [];
+      if (!projects.length) { showToast('暂无项目'); return; }
+      const btn = document.getElementById('syncVersionBtn');
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = '同步中…';
+      try {
+        const res = await fetch('/api/sync-versions');
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const changed = [], same = [], failed = [];
+        projects.forEach(p => {
+          const r = data.results && data.results[p.name];
+          if (r && r.ok) {
+            if (r.version && p.version !== r.version) {
+              p.version = r.version;
+              changed.push(`${p.name}：${r.version}`);
+            } else {
+              same.push(p.name);
+            }
+          } else {
+            failed.push(`${p.name}：${(r && r.error) || '未返回数据'}`);
+          }
+        });
+        if (changed.length) save(); else render();
+        let msg = `同步完成 ${changed.length + same.length}/${projects.length} 个项目，更新 ${changed.length} 个`;
+        if (same.length) msg += `，无变化 ${same.length} 个`;
+        if (failed.length) msg += `\n\n未同步 ${failed.length} 个：\n${failed.join('\n')}`;
+        alert(msg);
+      } catch (e) {
+        alert('同步版本失败：' + e.message + '\n请检查 febot.config.json 的 devplatform 段（base / token）。');
+      } finally {
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }
+
     // ---- 项目 CRUD ----
     function openProjectModal(pi) {
       document.getElementById('projectModalTitle').textContent = pi === null ? '新增项目' : '编辑项目';
@@ -362,7 +401,7 @@
 
     function splitList(s) {
       if (!s) return [];
-      return String(s).split(/[\n,，、]/).map(x => x.trim()).filter(Boolean);
+      return String(s).split(/[\n;；、]/).map(x => x.trim()).filter(Boolean);
     }
 
     function moduleToProject() {
@@ -389,14 +428,33 @@
       });
     }
 
+    // 一键更新没抓到数据的项目，手工填的「新功能/修复」也要能独立成卡片展示
+    // （否则 currentWeekByUser 里没有该 module，手填内容在「本周已完成」里完全不可见）
+    function weekMods() {
+      const mods = (weekDataFor(currentUser) || []).slice();
+      const known = new Set(mods.map(m => m.module));
+      (state.projects || []).forEach(p => {
+        if (!p || known.has(p.name)) return;
+        const fx = fxFor(p, currentUser);
+        if (!splitList(fx.features).length && !splitList(fx.fixes).length) return;
+        known.add(p.name);
+        mods.push({ module: p.name, count: 0, items: [] });
+      });
+      return mods;
+    }
+
     function renderWeek() {
       const wrap = document.getElementById('weekWrap');
       const body = document.getElementById('weekBody');
-      const mods = weekDataFor(currentUser);
+      const mods = weekMods();
       wrap.classList.toggle('hidden', false);
       const range = state.weekRange;
+      // 「一键更新」现在拉全部负责人，条数按当前下拉选中的负责人取
+      const rangeTotal = range && range.totalByUser && typeof range.totalByUser[currentUser] === 'number'
+        ? range.totalByUser[currentUser]
+        : (range && range.total) || 0;
       document.getElementById('weekTitle').textContent = range && range.startVal
-        ? `📋 ${range.startVal} ~ ${range.endVal} · 共 ${range.total} 条`
+        ? `📋 ${range.startVal} ~ ${range.endVal} · 共 ${rangeTotal} 条`
         : '📋 本周已完成';
       body.innerHTML = mods.length ? mods.map((m, mi) => {
         const { feats, fixs } = moduleAggregate(m);
@@ -448,7 +506,7 @@
     }
 
     async function copyModuleTitles(mi) {
-      const mod = weekDataFor(currentUser)[mi];
+      const mod = weekMods()[mi];
       if (!mod) return;
       const { feats, fixs } = moduleAggregate(mod);
       const lines = ['✨ 新功能'];
@@ -473,21 +531,41 @@
       }
     }
 
-    // ---- 一键更新 ----
+    // ---- 一键更新：一次更新下拉列表里的全部负责人 ----
     async function updateWeek() {
-      if (!currentUser) { alert('未配置负责人：请在 febot.config.json 的 teamwork.users 填写。'); return; }
+      if (!USERS.length) { alert('未配置负责人：请在 febot.config.json 的 teamwork.users 填写。'); return; }
       const btn = document.getElementById('updateBtn');
       const orig = btn.textContent;
       btn.disabled = true; btn.textContent = '更新中…';
       try {
-        const res = await fetch('/api/current-week?user=' + encodeURIComponent(currentUser));
+        const res = await fetch('/api/current-week?all=1');
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        // 旧版服务端不认识 all=1，会退回单用户格式（没有 users）；
+        // 不拦住的话会把每个负责人都当成失败，误报「已更新 0/5」
+        if (!data.users || typeof data.users !== 'object') {
+          throw new Error('服务端返回格式不匹配（当前 om 进程可能还在运行旧代码），请重启 om 服务后重试');
+        }
         state.currentWeekByUser = state.currentWeekByUser || {};
-        state.currentWeekByUser[currentUser] = data.modules || [];
-        state.weekRange = { startVal: data.startVal, endVal: data.endVal, total: data.total };
+        const totalByUser = {};
+        const failed = [];
+        let success = 0, total = 0;
+        USERS.forEach(u => {
+          const r = data.users && data.users[u];
+          if (r && r.ok) {
+            state.currentWeekByUser[u] = r.modules || [];
+            totalByUser[u] = r.total || 0;
+            total += r.total || 0;
+            success++;
+          } else {
+            failed.push(`${u}：${(r && r.error) || '未返回数据'}`);
+          }
+        });
+        state.weekRange = { startVal: data.startVal, endVal: data.endVal, total, totalByUser };
         save();
-        alert(`已更新：共 ${data.total} 条已完成任务，分属 ${data.modules.length} 个项目`);
+        let msg = `已更新 ${success}/${USERS.length} 个负责人，共 ${total} 条已完成任务`;
+        if (failed.length) msg += `\n\n失败 ${failed.length} 个：\n${failed.join('\n')}`;
+        alert(msg);
       } catch (e) {
         alert('一键更新失败：' + e.message + '\n若为鉴权/网络问题，请检查 febot.config.json 的 teamwork 段（base / cookie / loginName / password）。');
       } finally {

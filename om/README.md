@@ -28,6 +28,7 @@ docs/        导出物（本地生成，gitignore）
 - **负责人列表 / 默认负责人 / 协作平台地址与凭据**：读仓库根的 `febot.config.json` 的 `teamwork` 段（`users` / `username` / `base` / `cookie` / `loginName` / `password` / `userTag` / `tableId` / `autograph`）。
 - **账号密码**：`teamwork.cookie` 留空时，用 `teamwork.loginName` / `teamwork.password` 自动登录并刷新 cookie（`password` 是前端加密密文，原样透传）。
 - 两者都没配 → 「一键更新」返回 502 并给出指引，页面其余部分照常。
+- **版本平台**：读 `febot.config.json` 的 `devplatform` 段（`base` / `token`；可选 `appNames` 做「项目名 → 平台应用名」映射）。`token` 为空 → 「同步版本」返回 502。
 
 > `om/docs/` 取消入库后，`server.js` 的 `latestDocStart()` 会从「上次导出日期」退化为「最近一次周五 00:00」。这只影响「一键更新」的时间起点，不报错。
 
@@ -37,4 +38,7 @@ docs/        导出物（本地生成，gitignore）
 - 新增 / 重命名 / 删除负责人分组
 - 新增 / 编辑 / 删除项目；点打包状态徽标可循环切换状态
 - 顶部统计项目总数与各状态数量；可搜索过滤
+- 「♻ 一键更新」一次拉取 `teamwork.users` 里全部负责人的本周已完成任务；单个负责人失败不影响其他人，失败原因会一并提示
+- 「✓ 一键完成」把所有项目的打包状态一次性置为「已完成」
+- 「⇅ 同步版本」从开发平台拉取每个项目最新大版本下的最新小版本号，回填到版本字段；平台找不到对应应用的项目会在提示里列出
 - 所有修改即改即存；支持导出 JSON 备份、导入恢复
