@@ -29,6 +29,7 @@ docs/        导出物（本地生成，gitignore）
 - **账号密码**：`teamwork.cookie` 留空时，用 `teamwork.loginName` / `teamwork.password` 自动登录并刷新 cookie（`password` 是前端加密密文，原样透传）。
 - 两者都没配 → 「一键更新」返回 502 并给出指引，页面其余部分照常。
 - **版本平台**：读 `febot.config.json` 的 `devplatform` 段（`base` / `token`；可选 `appNames` 做「项目名 → 平台应用名」映射）。`token` 为空 → 「同步版本」返回 502。
+- **Jenkins 跳转**：读顶层 `codeNameMap`（「看板项目名 → 仓库目录名」）和 `jenkins` 段（`base` / `jobs`），由服务端拼出每个项目的 Jenkins 地址。
 
 > `om/docs/` 取消入库后，`server.js` 的 `latestDocStart()` 会从「上次导出日期」退化为「最近一次周五 00:00」。这只影响「一键更新」的时间起点，不报错。
 

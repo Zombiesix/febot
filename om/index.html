@@ -121,7 +121,7 @@
     // 未配置时为空 —— 所有用到的地方都要能容忍空列表。
     let USERS = [];
     let currentUser = '';
-    // 项目名 → Jenkins 跳转地址，由服务端 /api/config 按 codeNames + jenkins.jobs 拼好
+    // 项目名 → Jenkins 跳转地址，由服务端 /api/config 按 codeNameMap + jenkins.jobs 拼好
     let JENKINS = {};
     // 默认负责人：优先取地址栏 ?name=，否则回退第一个
     function initialUser() {
