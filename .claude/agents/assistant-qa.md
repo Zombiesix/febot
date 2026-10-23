@@ -21,10 +21,14 @@ background: false
 1. 先 `node scripts/assistant-memo.mjs recall --bank assistant-<仓名> --query "<问题>"` 查已存结论。
 2. 未命中 → 走事实层现算:
    ```bash
-   node code-indexer/bin/cli.mjs <cmd> <repoRoot>/<仓名> [...args]
+   node scripts/index-query.mjs <cmd> <repoRoot>/<仓名> [...args]
    ```
    按问题选命令:`trace`(模块业务链路)/ `trace-state`(字段谁读谁写)/ `trace-event`(事件上下游)/
    `channels --kind permission|storage` / `modules` / `search`。
+   - 它复用 `.febot/index/<仓>.json` 的 ProjectMap 缓存（键 = HEAD + git status 哈希 + 索引器版本），
+     与流水线 recon/locate 共用同一份；缓存命中时查询为秒级，未命中才扫描一次。
+   - `git status` 只记路径不记内容，文件改过又继续改时哈希不变；**需要确保最新**时加 `--refresh`（重扫一次）。
+   - 输出与 `code-indexer/bin/cli.mjs` 一致；需要结构化结果时加 `--json`。
 3. 用**业务语言**写摘要,**不贴大段代码、不堆变量名**(铁律二)。
 4. 索引器说「说不清」的,照实转述原因,**不脑补**;查不到就说查不到。
 

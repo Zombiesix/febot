@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { getScan, clearScanCache } from "./src/cache";
+import type { ProjectMap } from "./src/types";
 import {
   projectOverview,
   traceFlow,
@@ -30,26 +32,49 @@ Usage:
   xiaoyou-index stats <repo>                   scan stats only
   xiaoyou-index rescan <repo>                  drop cache and rescan
   xiaoyou-index serve <repo>                   start stdio MCP server
+
+Common option:
+  --map-file <path>   load ProjectMap from a persisted JSON (scan output, or
+                      febot's .febot/index/<repo>.json wrapper) instead of
+                      rescanning. Caller owns invalidation.
 `;
 
-function args(flags: string[], argv: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const f of flags) {
-    const i = argv.indexOf(f);
-    if (i >= 0 && argv[i + 1]) out[f] = argv[i + 1];
+const VALUE_FLAGS = new Set(["--kind", "--limit", "--map-file"]);
+
+function parseArgs(argv: string[]): { flags: Record<string, string | boolean>; positional: string[] } {
+  const flags: Record<string, string | boolean> = {};
+  const positional: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (!a.startsWith("--")) {
+      positional.push(a);
+      continue;
+    }
+    if (VALUE_FLAGS.has(a)) {
+      flags[a] = argv[i + 1] ?? "";
+      i += 1;
+    } else {
+      flags[a] = true;
+    }
   }
-  return out;
+  return { flags, positional };
+}
+
+/** 接受 scan 的裸 ProjectMap，或 febot 索引包装 { map: ProjectMap, ... } */
+function loadMapFile(file: string): ProjectMap {
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  return parsed && typeof parsed === "object" && parsed.map && parsed.map.repo ? parsed.map : parsed;
 }
 
 function main(): void {
   const [, , cmd, ...rest] = process.argv;
-  const positional = rest.filter(a => !a.startsWith("--"));
-  const flags = args(["--kind", "--limit"], rest);
+  const { flags, positional } = parseArgs(rest);
   const repo = positional[0];
   const compact = rest.includes("--compact");
+  const mapFile = typeof flags["--map-file"] === "string" ? (flags["--map-file"] as string) : "";
 
   const print = (text: string) => process.stdout.write(compact ? JSON.stringify(JSON.parse(text)) : text + "\n");
-  const map = () => getScan(repo);
+  const map = () => (mapFile ? loadMapFile(mapFile) : getScan(repo));
 
   switch (cmd) {
     case "scan": {
@@ -86,7 +111,7 @@ function main(): void {
     }
     case "channels": {
       requireRepo(repo);
-      print(channelsSummary(map(), flags["--kind"]));
+      print(channelsSummary(map(), strFlag(flags, "--kind")));
       break;
     }
     case "modules": {
@@ -97,7 +122,7 @@ function main(): void {
     case "warnings": {
       requireRepo(repo);
       const limit = flags["--limit"] ? Number(flags["--limit"]) : undefined;
-      print(listWarnings(map(), { kind: flags["--kind"], limit }));
+      print(listWarnings(map(), { kind: strFlag(flags, "--kind"), limit }));
       break;
     }
     case "search": {
@@ -129,6 +154,11 @@ function main(): void {
       process.stderr.write(USAGE);
       process.exit(cmd ? 1 : 0);
   }
+}
+
+function strFlag(flags: Record<string, string | boolean>, name: string): string | undefined {
+  const v = flags[name];
+  return typeof v === "string" && v ? v : undefined;
 }
 
 function requireRepo(repo?: string): void {

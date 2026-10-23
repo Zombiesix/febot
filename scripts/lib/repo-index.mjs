@@ -115,7 +115,8 @@ function scan(repoDir) {
 
 /**
  * 读仓索引；缓存命中直接返回。
- * 返回 { map, repo, cached, head, scannedAt, indexerVersion, cachePath, statusHash }。
+ * 返回 { map, repo, cached, head, scannedAt, indexerVersion, cachePath, cacheFilePath, statusHash }。
+ * `cachePath` 是相对 ROOT 的展示路径；`cacheFilePath` 是绝对路径，供子进程直接读取。
  */
 export function loadRepoMap(repoDir, opts = {}) {
   const { refresh = false } = opts;
@@ -141,6 +142,7 @@ export function loadRepoMap(repoDir, opts = {}) {
           scannedAt: cached.scannedAt,
           indexerVersion: version,
           cachePath: displayPath(paths.json),
+          cacheFilePath: paths.json,
           statusHash: key.statusHash,
         };
       }
@@ -172,6 +174,7 @@ export function loadRepoMap(repoDir, opts = {}) {
     scannedAt,
     indexerVersion: version,
     cachePath: displayPath(paths.json),
+    cacheFilePath: paths.json,
     statusHash: key.statusHash,
     elapsedMs: record.elapsedMs,
   };

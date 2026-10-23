@@ -30,7 +30,8 @@ description: 业务助手——问什么答什么,直接给业务结论,不追�
 - bank 名 = `assistant-<仓名>`;跨仓通用知识(黑话、组织、通用约定)存 `assistant-shared`。
 
 ```
-事实层(现算,不落盘)  node code-indexer/bin/cli.mjs <cmd> <repoRoot>/<仓名> [...args]
+事实层(现算,不落盘)  node scripts/index-query.mjs <cmd> <repoRoot>/<仓名> [...args]
+                      └ 复用 .febot/index 的 ProjectMap 缓存,与 recon/locate 共用;要最新加 --refresh
 文档层(已存结论)      node scripts/assistant-memo.mjs recall --bank assistant-<仓名> --query "<问题>"
 项目地图(生成物)      yarn assistant:map <repoRoot>/<仓名>   → docs/assistant/<仓名>/map.md
 ```

@@ -335,15 +335,16 @@ python scripts/ensure-banks.py
 ## 5. 命令速查
 
 ```bash
-# 事实层（现算，不落盘）—— 索引器 CLI
-node code-indexer/bin/cli.mjs map    <repoRoot>/<仓>              # 项目全貌
-node code-indexer/bin/cli.mjs trace  <repoRoot>/<仓> <模块|路由>    # 业务链路:路由→组件树→API→store/事件/权限/存储
-node code-indexer/bin/cli.mjs trace-state <repoRoot>/<仓> <store>[.<字段>]
-node code-indexer/bin/cli.mjs trace-event <repoRoot>/<仓> <组件> <事件>
-node code-indexer/bin/cli.mjs channels <repoRoot>/<仓> --kind permission|storage
-node code-indexer/bin/cli.mjs modules <repoRoot>/<仓> [<模块>]
-node code-indexer/bin/cli.mjs search  <repoRoot>/<仓> <词>
-node code-indexer/bin/cli.mjs stats   <repoRoot>/<仓>              # 探活
+# 事实层（现算，不落盘）—— 复用 .febot/index 的 ProjectMap 缓存（与 recon/locate 共用）
+node scripts/index-query.mjs map    <repoRoot>/<仓>              # 项目全貌
+node scripts/index-query.mjs trace  <repoRoot>/<仓> <模块|路由>    # 业务链路:路由→组件树→API→store/事件/权限/存储
+node scripts/index-query.mjs trace-state <repoRoot>/<仓> <store>[.<字段>]
+node scripts/index-query.mjs trace-event <repoRoot>/<仓> <组件> <事件>
+node scripts/index-query.mjs channels <repoRoot>/<仓> --kind permission|storage
+node scripts/index-query.mjs modules <repoRoot>/<仓> [<模块>]
+node scripts/index-query.mjs search  <repoRoot>/<仓> <词>
+node scripts/index-query.mjs stats   <repoRoot>/<仓>              # 探活
+# 缓存键 = HEAD + git status 哈希 + 索引器版本；需要最新数据时加 --refresh（重扫一次）
 
 # 文档层（Hindsight 记忆）
 yarn assistant:memo status --all
@@ -439,6 +440,7 @@ scripts/feed.mjs             需求接入（解析/定仓/门禁/脚手架，固
 scripts/lib/febot.mjs        共享底座：配置/原子读写/git/门禁/白名单
 scripts/lib/requirement.mjs  需求/仓库/分支解析
 scripts/lib/repo-index.mjs   仓索引缓存（.febot/index，按 HEAD+status 命中）
+scripts/index-query.mjs      复用索引缓存的查询入口（assistant 事实层；trace/search/modules…）
 scripts/hindsight-memo.py    流水线侧记忆 CLI
 scripts/assistant-{memo,map,probe}.mjs   助手侧记忆 CLI / 地图 / 探针
 xiaoqian-manager/        小千管理(Next.js) —— 全部流程的宿主(①④⑤)
