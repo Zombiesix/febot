@@ -40,8 +40,8 @@
         <button id="updateBtn" onclick="updateWeek()" class="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-500">♻ 一键更新</button>
         <button onclick="completeAll()" class="px-3 py-2 text-sm rounded-lg border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50">✓ 一键完成</button>
         <button id="syncVersionBtn" onclick="syncVersions()" class="px-3 py-2 text-sm rounded-lg border border-sky-300 bg-white text-sky-700 hover:bg-sky-50">⇅ 同步版本</button>
-        <button onclick="resetData()" class="px-3 py-2 text-sm rounded-lg border border-rose-300 bg-white text-rose-600 hover:bg-rose-50">重置</button>
         <button onclick="exportData()" class="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">导出</button>
+        <button onclick="resetData()" class="px-3 py-2 text-sm rounded-lg border border-rose-300 bg-white text-rose-600 hover:bg-rose-50">重置</button>
       </div>
     </div>
   </header>
@@ -121,6 +121,8 @@
     // 未配置时为空 —— 所有用到的地方都要能容忍空列表。
     let USERS = [];
     let currentUser = '';
+    // 项目名 → Jenkins 跳转地址，由服务端 /api/config 按 codeNames + jenkins.jobs 拼好
+    let JENKINS = {};
     // 默认负责人：优先取地址栏 ?name=，否则回退第一个
     function initialUser() {
       try {
@@ -161,6 +163,7 @@
         const cfg = await res.json();
         if (Array.isArray(cfg.users) && cfg.users.length) USERS = cfg.users;
         else if (cfg.defaultUser) USERS = [cfg.defaultUser];
+        if (cfg.jenkins && typeof cfg.jenkins === 'object') JENKINS = cfg.jenkins;
       } catch (e) { /* 服务未启动或未配置，保持空列表 */ }
       currentUser = initialUser();
     }
@@ -282,6 +285,8 @@
             ${p.remark ? `<div class="text-xs text-slate-400 mt-0.5">备注：${escapeHtml(p.remark)}</div>` : ''}
           </div>
           ${p.version ? `<span class="text-xs font-mono bg-slate-100 text-slate-600 rounded-lg px-2 py-1 whitespace-nowrap">v${escapeHtml(p.version)}</span>` : ''}
+          ${JENKINS[p.name] ? `<a href="${escapeHtml(JENKINS[p.name])}" target="_blank" rel="noopener noreferrer" title="打开 Jenkins：已完成状态下表示包已打好，可直接下载"
+            class="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-indigo-100">Jenkins</a>` : ''}
           <button title="点击切换打包状态" onclick="cycleStatus(${pi})"
             class="px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap ${meta.cls}">${meta.label}</button>
           <div class="flex gap-1 whitespace-nowrap">

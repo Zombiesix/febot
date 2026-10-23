@@ -52,7 +52,33 @@ const DP_ROOT = str(DP.base) || 'https://devplatform.cnhis.com';
 const DP_TOKEN = str(DP.token);
 // 可选：项目名 → 平台应用名映射（平台按应用名精确匹配时用）
 const DP_APP_NAMES = (DP.appNames && typeof DP.appNames === 'object') ? DP.appNames : {};
+// 可选：项目显示名 → 仓库目录名映射（看板项目名 → jenkins.jobs 的键）
+const DP_CODE_NAMES = (DP.codeNames && typeof DP.codeNames === 'object') ? DP.codeNames : {};
 const DP_API = '/devplatform/devplatformVersion';
+
+// ---- Jenkins：项目名 → 跳转地址 ----
+// 链路：看板项目名（如「护理系统」）→ codeNames 得到仓库名（iho-nurse-manager-ui）
+//       → jenkins.jobs[仓库名] 得到 job 路径 → 与 jenkins.base 拼接
+const JK = (CONFIG.jenkins && typeof CONFIG.jenkins === 'object') ? CONFIG.jenkins : {};
+const JK_BASE = str(JK.base);
+const JK_JOBS = (JK.jobs && typeof JK.jobs === 'object') ? JK.jobs : {};
+
+function jenkinsUrl(repoName) {
+  const job = str(JK_JOBS[repoName]);
+  if (!JK_BASE || !job) return '';
+  return `${JK_BASE.replace(/\/+$/, '')}/${job.replace(/^\/+/, '')}`;
+}
+
+// 看板项目名可能是中文显示名（codeNames 的键），也可能直接是仓库名（jobs 的键），两种都建映射
+const JENKINS_URLS = {};
+Object.keys(JK_JOBS).forEach(repo => {
+  const url = jenkinsUrl(repo);
+  if (url) JENKINS_URLS[repo] = url;
+});
+Object.keys(DP_CODE_NAMES).forEach(name => {
+  const url = jenkinsUrl(str(DP_CODE_NAMES[name]));
+  if (url) JENKINS_URLS[name] = url;
+});
 
 // ---- teamwork 取数（cookie 过期时用 teamwork 段的账号密码自动重新登录刷新）----
 const BASE = str(TW.base);
@@ -448,7 +474,7 @@ const server = http.createServer((req, res) => {
   // ---- 前端配置：负责人列表 + 默认负责人（来自 febot.config.json 的 teamwork 段）----
   if (pathname === '/api/config' && req.method === 'GET') {
     const users = Array.isArray(TW.users) ? TW.users.map(str).filter(Boolean) : [];
-    send(res, 200, JSON.stringify({ users, defaultUser: TW_USERNAME, hasBase: !!BASE }));
+    send(res, 200, JSON.stringify({ users, defaultUser: TW_USERNAME, hasBase: !!BASE, jenkins: JENKINS_URLS }));
     return;
   }
 
