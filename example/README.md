@@ -8,7 +8,6 @@
 | ----------------------- | ----------------------------------- |
 | `febot.config.json`     | `febot.config.json`                 |
 | `tasks.md`              | `tasks.md`                          |
-| `project-map.md`        | `project-map.md`                    |
 | `file-lock.md`          | `file-lock.md`                      |
 | `om-data.json`          | `om/data.json`                      |
 | `claude-settings.json`  | `.claude/settings.json`             |

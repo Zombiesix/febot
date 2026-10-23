@@ -56,10 +56,9 @@ yarn setup
 
    | 模板（`example/`）       | 生成物                             | 用途                                             |
    | ------------------------ | ---------------------------------- | ------------------------------------------------ |
-   | `febot.config.json`      | `febot.config.json`                | **主配置**：仓库根 / 仓库列表 / 分支 / Jenkins / 协作平台（含账号密码） |
+   | `febot.config.json`      | `febot.config.json`                | **主配置**：仓库根 / 仓库列表 / 产品→仓库映射 / 分支 / Jenkins / 协作平台（含账号密码） |
    | `hindsight.env`          | `scripts/hindsight.env`            | Hindsight 的 LLM / embedding key                 |
    | `tasks.md`               | `tasks.md`                         | 需求元信息表（流水线会往里追加行）               |
-   | `project-map.md`         | `project-map.md`                   | 「平台产品 → 仓库」映射，喂食时查它              |
    | `file-lock.md`           | `file-lock.md`                     | 并行冲突仲裁表                                   |
    | `om-data.json`           | `om/data.json`                     | 发版看板数据                                     |
    | `claude-settings.json`   | `.claude/settings.json`            | Claude Code 权限规则（含 `archive/` 禁区 deny）  |
@@ -77,9 +76,15 @@ yarn setup
 {
   "repoRoot": "./gitlab",                    // 目标仓 clone 到哪
   "repos": ["example-repo", "example-web"],  // repoRoot 下的仓库目录名；空 = 下拉为空
+  "projectMap": [                            // PM 卡「产品/模块」→ 目标仓（唯一映射依据）
+    { "product": "示例产品 A", "keywords": ["移动端"], "repo": "example-repo-mobile" },
+    { "product": "示例产品 A", "repo": "example-repo" },   // 无 keywords = 该产品兜底
+    { "product": "示例产品 B", "repo": "example-repo-b" }
+  ],
   "branches": {
     "candidates": ["dev", "release"],        // 下拉候选 + 分支白名单
-    "default": "dev"                         // 基准分支（开工门禁校验它）
+    "default": "dev",                        // 全局基准分支（开工门禁校验它）
+    "byRepo": { "example-repo-b": "release" } // 可选：按仓库覆盖基准分支
   },
   "jenkins": {
     "base": "https://jenkins.example.com/jenkins/job",
@@ -105,7 +110,7 @@ yarn setup
 
 ## 0.4 准备目标仓
 
-把你要改的前端仓 clone 到 `repoRoot` 下，每个仓停在 `branches.default`：
+把你要改的前端仓 clone 到 `repoRoot` 下，每个仓停在其基准分支（默认 `branches.default`；有 `byRepo` 覆盖时按覆盖值）：
 
 ```bash
 cd gitlab
@@ -113,9 +118,9 @@ git clone <你的仓库地址> example-repo
 cd example-repo && git checkout dev
 ```
 
-> **基准分支由配置决定**：从 `febot.config.json` 的 `branches.default` 读取（默认 `dev`，非 master）；候选分支见 `branches.candidates`。开工门禁校验主仓 `HEAD == branches.default`。
+> **基准分支由配置决定**，按优先级取值：`projectMap[].branch`（单条映射）> `branches.byRepo[<仓库>]` > `branches.default`（默认 `dev`，非 master）；候选分支见 `branches.candidates`。开工门禁校验主仓 `HEAD ==` 解析出的基准分支。
 
-再填 `project-map.md`（哪个产品/模块落到哪个仓）—— 这张表是喂食时唯一的仓库判断依据。
+再填 `febot.config.json` 的 `projectMap`（哪个产品/模块落到哪个仓）—— 它是喂食时唯一的仓库判断依据。解析规则确定、无歧义：`product` 精确匹配 → 标题命中某条 `keywords` 用该条 `repo`（多条按数组顺序取第一条）→ 都不命中用该产品下无 `keywords` 的兜底条目；兜底不唯一或没有命中就停下问负责人，不许猜。
 
 ## 0.5 跑起来
 
@@ -124,6 +129,7 @@ yarn dev          # om 看板 :3000 + xiaoqian-manager :3010（并行）
 yarn om           # 只起发版看板 :3000
 yarn xiaoqian     # 只起 xiaoqian-manager :3010
 yarn recon <别名>  # 生成某需求的事实底稿 docs/requirements/<别名>/recon.md
+yarn feed --plan <计划文件> [--alias R-xxxxxx] [--json] [--dry-run]  # 接入需求（解析/定仓/门禁/脚手架）
 ```
 
 浏览器打开 `http://localhost:3010`，右上角「同步」拉需求；`http://localhost:3000` 是发版看板。
@@ -178,7 +184,7 @@ python scripts/ensure-banks.py
 | 步骤                                      | 做什么                                                       | 在哪执行                      | 由谁操作          | 说明                                                       |
 | ----------------------------------------- | ------------------------------------------------------------ | ----------------------------- | ----------------- | ---------------------------------------------------------- |
 | **① 获取需求**                            | 从协作平台(teamwork)拉取需求列表/详情入库                    | xiaoqian-manager              | 小前端 点击同步   | 过滤条件 `user=小前端`，落盘 `tasks.json`                  |
-| **② 规划**                                | 小前端整理/修改需求描述 → AI 出实现计划 → 人工拍板           | xiaoqian-manager + `/pipeline` | 小前端 + AI       | 整理后的描述落 `plannedDescription`，作为 AI 的统一输入    |
+| **② 规划**                                | 小前端整理/修改需求描述 → AI 出实现计划 → 人工拍板           | xiaoqian-manager + `/pipeline` | 小前端 + AI       | `plannedDescription` **必填**；为空时「写代码」▶ 禁用，接口返回 422 |
 | **③ 编码+审查+修复**                      | AI 写代码 → 审查 → 修复 blocker                              | febot 家 `/pipeline` 剧本     | AI 全自动         | **只用 code-indexer、swagger-mcp-server 洞察代码**；入口是「写代码」节点的 ▶ |
 | **④ 提交合并**                            | 手工把代码提交、合并到远程                                   | xiaoqian-manager deploy 阶段  | 小前端 手动点完成 | 选仓库 + 目标分支，触发 git 提交推送/cherry-pick           |
 | **⑤ 填写工时**                            | 把本次研发工时写回协作平台                                   | xiaoqian-manager 工时         | 小前端 触发       | 复用协作平台登录态                                         |
@@ -189,7 +195,7 @@ python scripts/ensure-banks.py
 
 **AgentTeam（②③）直接在主仓基准分支的工作区里改代码，改动以「未提交」形式留下，绝不做 add / commit / push 远程**：
 
-- 它改的就是 `<repoRoot>/<仓>` 这个**主仓工作区**（停在 `branches.default`，默认 `dev`，非 master），**不建 worktree、不切分支、不提交**。
+- 它改的就是 `<repoRoot>/<仓>` 这个**主仓工作区**（停在解析出的基准分支，默认 `dev`，非 master），**不建 worktree、不切分支、不提交**。
 - 好处是**人工验收就在这个工作区上跑 dev server**，依赖、`.env`、后端代理、登录态全都现成（人工验收不再单列步骤）。
 - **远程提交、push、合并到目标分支**是 ④ 步，由 `小前端` 在 xiaoqian-manager 的 deploy 阶段手动完成（含 cherry-pick）。该阶段的代码本就基于主仓工作区，且会拒绝分离头指针状态，与这套模型天然一致。
 - 这样 AI 永远接触不到远程写操作，出问题也是"本地可回滚、远程有人把关"。
@@ -214,18 +220,63 @@ python scripts/ensure-banks.py
 - **流程分级** —— `tier: full | light`,小改动不进昂贵环节。
 - **人工只卡门禁** —— 全部拍板进 `decisions.md`,留审计链。
 
-### 喂食一个需求（PM 任务 → 流水线输入）
+### 喂食一个需求（PM 任务 / 口头需求 → 流水线输入）
 
-> 由 **pipeline-feed skill** 完成：会话内 `/pipeline <别名>` 时，若该需求尚未接入（无 `docs/requirements/<别名>/`），orchestrator 在 init 阶段自动调用 skill，参数 = PM 计划文件路径（如 `get-plan/plans/<任务ID>.md`）。
+> 由 **`scripts/feed.mjs`** 确定性完成：解析计划文件、定仓库与基准分支、跑开工门禁、拷模板、写 context、upsert `tasks.md`，**最后**写 `state.json`。orchestrator 只负责判断 tier，并调用 `--set-tier` 落盘。
 
-1. **抽字段**：定别名 `R-<任务ID后6位>`（例 `R-013345`），提取产品/模块、客户、描述、附件链接。
-2. **查 project-map**：按「产品/模块 + 标题关键词」映射到目标仓目录，查不到/命中多条 → 向负责人要，确认后回填，不许猜。基准分支读 `febot.config.json` 的 `branches.default`。
-3. **拷模板**：复制 `_template/` → `docs/requirements/R-013345/`，context.md 顶部放**需求标题 + 一句话需求描述**。
-4. **登记**：tasks.md 新行、state.json(phase=init)、decisions.md(tier 判定)、file-lock.md。
-5. **tier 建议**：改文案/单文件小修 → light；新增组件、动 store/表格/页面、多步任务 → full；拿不准标 full 并写明原因。
-6. **到此为止** —— 不切分支、不建 worktree、不动真实源码，回到流水线继续。
+**入口一：任务ID流程**（xiaoqian-manager 的「写代码」▶ 自动生成计划文件）
 
-> **开工门禁（feed 阶段前置校验）**：主仓 `<repoRoot>/<仓库>` 必须 `HEAD == branches.default` 且 `git status --porcelain` 为空；不满足就停下来让负责人先在 ④ 步提交，绝不允许带着脏工作区开工。这是替代 worktree 的隔离手段。
+计划文件格式（首行标题 + 元信息 + 两个正文小节）：
+
+```markdown
+# <需求标题>
+
+任务ID: <id>
+查询ID: <demandId>
+别名: R-xxxxxx
+产品/模块: <module>
+版本: <version>
+状态: <status>
+难度: <demandLevel>
+任务类型: <taskType>
+最大工时: <maxHour>
+执行人: <assignee>
+创建人: <createdName>
+
+## 问题描述
+
+<plannedDescription 原文；必填，不能是「（空）」>
+
+## 分配任务说明
+
+<assignDescription 原文>
+```
+
+**入口二：口头流程**（`/pipeline` 后直接给需求）。必须显式给出标题与产品/模块：
+
+```text
+/pipeline # <标题>
+产品/模块: <module>
+<需求描述（可多行）>
+```
+
+- 首个非空行不是 `# <标题>`、缺 `产品/模块:` 行、或去掉这两行后正文为空 → **立即报错返回**，不创建临时文件、不调用 feed。
+- 通过后 orchestrator 落盘 `xiaoqian-manager/data/temp/R-oral-<MMDDHHmm>.md`（标题 + 模块 + `## 问题描述`），别名取自文件名。
+
+**feed 做什么**
+
+1. **解析与校验**：标题、元信息白名单、`## 问题描述` / `## 分配任务说明`；描述为空或等于 `（空）` → exit 5。别名取 `--alias` > `别名` > `R-oral-*` 文件名 > `任务ID` 后 6 位。
+2. **定仓**：`projectMap` 产品精确匹配 → 标题关键词 → 无关键词兜底；未命中 exit 2，兜底不唯一 exit 6。
+3. **定基准分支**：`projectMap[].branch` > `branches.byRepo[repo]` > `branches.default`。
+4. **开工门禁**：`HEAD == 基准分支` 且 `git status --porcelain` 为空；否则 exit 3。
+5. **脚手架**：复制 `_template/`，替换 `{REQUIREMENT_ID}`，重写 `context.md`（标题/全文/附件/目标仓库/基准分支），upsert `tasks.md`，**最后**写 `state.json`（`tier=full, phase=init`，含 `taskId/demandId/repo/baseBranch/gate`）。
+6. **tier 判定**：orchestrator 依据 `tierHint`（任务类型/难度/最大工时）判定后执行
+   `node scripts/feed.mjs --set-tier <别名> --tier light|full --reason "<理由>"`，脚本负责写 `decisions.md`、`tasks.md` 与 `state.json`（`phase` 随之为 `planning` / `coding`）。
+7. **幂等**：`state.json` 已存在 → exit 0 + `already:true`，不重复写；别名被其它任务占用 → exit 6。`--dry-run` 只输出将要执行的动作，不落任何文件。
+
+退出码：`0` 成功/已接入，`1` 未预期异常，`2` 映射未命中，`3` 门禁失败，`5` 输入/格式不符，`6` 配置/环境错误。
+
+> **开工门禁（feed 阶段前置校验）**：主仓 `<repoRoot>/<仓库>` 必须 `HEAD ==` 解析出的基准分支且 `git status --porcelain` 为空；不满足就停下来让负责人先在 ④ 步提交，绝不允许带着脏工作区开工。这是替代 worktree 的隔离手段。
 
 ### AgentTeam 内部流程（full）
 
@@ -367,7 +418,6 @@ febot.config.json         主配置(本地生成，不入库)
   agents/assistant-qa.md                助手问答 subagent（答案长时用）
   skills/pipeline-feed/                 喂食 skill
   skills/assistant/                     助手入口 skill + references/{service-protocol,what-to-store}.md
-project-map.md            平台产品 → 目标仓映射(负责人维护,喂食用)
 tasks.md                  需求元信息表(含 tier、**仓库**列——recon 靠它定位仓)
 file-lock.md              并行冲突仲裁表
 package.json              工作区脚本(`yarn om` / `assistant:*` 等)
@@ -381,6 +431,8 @@ docs/assistant/<仓>/map.md   助手项目地图（生成物，时点快照）
 docs/assistant-*.md          助手的设计计划 / 实施步骤 / 使用说明
 docs/hindsight-*.md          Hindsight 方案与接入
 scripts/recon.mjs            流水线事实底稿
+scripts/feed.mjs             需求接入（解析/定仓/门禁/脚手架/--set-tier）
+scripts/lib/febot.mjs        recon 与 feed 共用的配置/Markdown 工具
 scripts/hindsight-memo.py    流水线侧记忆 CLI
 scripts/assistant-{memo,map,probe}.mjs   助手侧记忆 CLI / 地图 / 探针
 xiaoqian-manager/        小千管理(Next.js) —— 全部流程的宿主(①④⑤)
@@ -392,7 +444,7 @@ om/                      发版看板(独立,见 §16)
 **产品仓工作区（`<repoRoot>/<仓>`，AgentTeam 动代码的唯一地方）**
 
 - `repoRoot`（默认 `./gitlab`）下，每个仓一份**主仓 checkout**，不建 worktree、不切分支。
-- **基准分支**：读 `febot.config.json` 的 `branches.default`（默认 `dev`，非 master），主仓**常驻**该分支。
+- **基准分支**：按 `projectMap[].branch` > `branches.byRepo[repo]` > `branches.default`（默认 `dev`，非 master）解析，主仓**常驻**该分支。
 - coder 直接改这里的工作区文件，改动以**未提交**形式留下（**不 add/commit/push，见 §1 边界**）；人工验收也在这里跑 dev server（不再单列步骤）。
 - **开工前必须干净**：init 阶段校验 `git status --porcelain` 为空，脏就停（见 §11 门禁）。**同仓同时只能跑一个需求。**
 - 助手**只读** `<repoRoot>/<仓>`：不写任何文件、不建 worktree。
@@ -412,7 +464,7 @@ om/                      发版看板(独立,见 §16)
 3. reviewer 有 blocker 必须回 coder 修(full)
 4. 修复 ≤ 2 轮,超了转人工
 5. 每步产物必须落盘
-6. **开工门禁：主仓在 `branches.default` + 工作区干净**，不干净不开工（替代 worktree 的隔离手段）
+6. **开工门禁：主仓在解析出的基准分支 + 工作区干净**，不干净不开工（替代 worktree 的隔离手段）
 7. **同仓串行**：一个仓库同一时间只跑一个需求；并行只在不同仓之间
 8. 每需求独立会话（上下文隔离，与 worktree 无关）
 9. coder/reviewer 只认 plan.md「将改动文件清单」，不越界、不动清单外的改动
@@ -571,9 +623,18 @@ P0–P4 已实施完毕（记忆 CLI / 项目地图 / 答题 skill / 按需存 /
 
 ---
 
-## 附：project-map / 平台产品 → 目标仓 映射
+## 附：projectMap / 平台产品 → 目标仓 映射
 
-这张表**不在 README 里**，它由各团队自己维护，文件是 [project-map.md](project-map.md)（由 `yarn setup` 从 [example/project-map.md](example/project-map.md) 生成，**不入库**）。
+映射数据在 `febot.config.json` 的 `projectMap`（本地文件，**不入库**，由各团队自己维护）：
 
-> AgentTeam 喂食时据 PM 卡的「产品/模块 + 客户 + 标题关键词」查此表，决定改动落在哪个仓。**由负责人维护确认，AI 不猜。**
-> 助手也用同一张表定位目标仓（只读）。表里的仓库目录名必须与 `febot.config.json` 的 `repos` 对得上。
+```jsonc
+"projectMap": [
+  { "product": "示例产品 A", "keywords": ["移动端"], "repo": "example-repo-mobile" },
+  { "product": "示例产品 A", "repo": "example-repo" },   // 无 keywords = 该产品兜底
+  { "product": "示例产品 B", "repo": "example-repo-b" }
+]
+```
+
+> AgentTeam 喂食时据 PM 卡的「产品/模块 + 标题关键词」按下述规则确定性求值，决定改动落在哪个仓：
+> ① `product` 精确匹配；② 标题含某条 `keywords` 任一关键词 → 用该条 `repo`（多条命中按数组顺序取第一条）；③ 无关键词命中 → 用该产品下唯一一条无 `keywords` 的兜底条目；④ 兜底不唯一 / 无命中 → 问负责人，确认后回填，不许猜。
+> **由负责人维护确认。** 每条 `repo` 必须是 `repos` 里的仓库目录名。

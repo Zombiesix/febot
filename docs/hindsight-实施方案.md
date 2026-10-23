@@ -103,13 +103,13 @@ HINDSIGHT_API_LLM_MODEL=deepseek-v4.1-flash
 
 ## 3. Bank 设计（建 4+N 个库）
 
-> 整合现有的 `project-map.md`、`tasks.md`、`file-lock.md` 三张表的位置:不新增表,靠 bank 承载"规则被应用的实例"。
+> 整合现有的 `febot.config.json` 的 `projectMap`、`tasks.md`、`file-lock.md` 三处数据的位置:不新增表,靠 bank 承载"规则被应用的实例"。
 
 | bank_id                             | 存什么                                                                                                                  | 谁写                                | 谁读                  |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | --------------------- |
 | `li-expertise`                      | 人工评审标准、设计偏好、否决理由、"为什么不"                                                                            | orchestrator(done/修复后)+ 人工随手 | reviewer、planner     |
-| `febot-project`                   | 流水线全局约束(node 版本锁定、node_modules 规矩、commit 单行规范、dev-zjb 基准分支规则、**开工门禁/同仓串行**)、project-map 映射、历史全局拍板 | orchestrator(init/done)             | planner、orchestrator |
-| `<产品线>`(按 project-map 实际件数) | 该仓架构约定、踩坑、API 域特点、历史需求决策摘要                                                                        | orchestrator(done)                  | planner、coder        |
+| `febot-project`                   | 流水线全局约束(node 版本锁定、node_modules 规矩、commit 单行规范、dev-zjb 基准分支规则、**开工门禁/同仓串行**)、projectMap 映射、历史全局拍板 | orchestrator(init/done)             | planner、orchestrator |
+| `<产品线>`(按 projectMap 实际产品数) | 该仓架构约定、踩坑、API 域特点、历史需求决策摘要                                                                        | orchestrator(done)                  | planner、coder        |
 | `release-metrics`(⓪)                | 需求实际工时 vs 预估、发货状态                                                                                          | xiaoqian-manager(⑥)                 | planner(排期参考)     |
 
 **首期只建 3 个**(`li-expertise` / `febot-project` / 一个试点产品线如 `iho-cssd-ui`),跑通再加。

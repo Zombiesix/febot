@@ -58,12 +58,12 @@
 | bank_id                                                                           | 存什么                                                                                                                | 谁写入                                | 谁读取                |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------- |
 | `li-expertise`                                                                    | 人工的评审标准、设计偏好、否决理由、"为什么不"                                                                        | orchestrator（done/修复后）+ 人工随手 | reviewer、planner     |
-| `febot-project`                                                                 | 流水线全局约束（node 版本锁定、node_modules 规矩、commit 单行规范、dev-zjb 基准分支规则）、project-map 映射、历史拍板 | orchestrator（init/done）             | planner、orchestrator |
+| `febot-project`                                                                 | 流水线全局约束（node 版本锁定、node_modules 规矩、commit 单行规范、dev-zjb 基准分支规则）、projectMap 映射、历史拍板 | orchestrator（init/done）             | planner、orchestrator |
 | `<产品线>`（如 `iho-cssd-ui`、`reuseapp-blood-bank-web`、`iho-nurse-manager-ui`） | 该仓的架构约定、踩坑、API 域特点、历史需求决策摘要                                                                    | orchestrator（done）                  | planner、coder        |
 
 **bank 与现有文件的对应关系：**
 
-- `febot-project` ≈ README 门禁清单 + project-map.md 的**动态版**（README 是规则，bank 是"规则被应用的实例"）
+- `febot-project` ≈ README 门禁清单 + `febot.config.json` 的 `projectMap` 的**动态版**（README 是规则，bank 是"规则被应用的实例"）
 - `<产品线>` ≈ 小游导师 knowledge pages + 各需求 decisions.md 的**浓缩版**
 - `li-expertise` ≈ 目前**不存在对应物**——这就是"对不齐思想"的空洞，是本方案的核心产出
 
@@ -93,7 +93,7 @@ python -c "from hindsight_client import Hindsight; c=Hindsight('http://localhost
 c.retain(bank_id='smoke-test', content='测试记忆'); print(c.recall(bank_id='smoke-test', query='测试'))"
 ```
 
-同时起一个银行：用 UI（`:9999`）或脚本建出 §2 的四个 bank（以 project-map 实际产品线为准）。
+同时起一个银行：用 UI（`:9999`）或脚本建出 §2 的四个 bank（以 `projectMap` 实际产品线为准）。
 
 ---
 

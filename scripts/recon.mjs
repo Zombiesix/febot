@@ -14,9 +14,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { ROOT, reposRoot, section, stripNoise } from "./lib/febot.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INDEXER_DIR = path.join(ROOT, "code-indexer");
 const INDEXER_CLI = path.join(INDEXER_DIR, "bin", "cli.mjs");
 
@@ -31,39 +30,6 @@ const fail = msg => {
   process.exit(1);
 };
 
-// ---------- 配置 ----------
-
-/** 读 febot.config.json（不入库，由 yarn setup 生成） */
-function readConfig() {
-  const candidates = [
-    process.env.FEBOT_CONFIG ? path.resolve(process.env.FEBOT_CONFIG) : "",
-    path.join(ROOT, "febot.config.json"),
-    path.join(process.cwd(), "febot.config.json"),
-  ].filter(Boolean);
-  for (const p of candidates) {
-    if (!fs.existsSync(p)) continue;
-    let raw;
-    try {
-      raw = JSON.parse(fs.readFileSync(p, "utf8"));
-    } catch {
-      fail(`febot.config.json 不是合法 JSON：${p}`);
-    }
-    return { dir: path.dirname(p), raw: raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {} };
-  }
-  return null;
-}
-
-/** 目标仓根目录：配置里的 repoRoot（相对路径按配置文件所在目录解析），缺配置时退回 <仓库根>/gitlab */
-function reposRoot() {
-  const cfg = readConfig();
-  const raw = cfg?.raw?.repoRoot;
-  if (cfg && typeof raw === "string" && raw.trim()) {
-    const v = raw.trim();
-    return path.isAbsolute(v) ? v : path.resolve(cfg.dir, v);
-  }
-  return path.join(ROOT, "gitlab");
-}
-
 // ---------- 输入解析 ----------
 
 const alias = process.argv[2];
@@ -75,18 +41,8 @@ if (!fs.existsSync(contextPath)) fail(`context.md not found: ${contextPath}`);
 
 const context = fs.readFileSync(contextPath, "utf8");
 
-/** 取某个 `## 标题` 到下一个 `## ` 之间的正文 */
-function section(md, title) {
-  const lines = md.split(/\r?\n/);
-  const start = lines.findIndex(l => l.trim() === `## ${title}`);
-  if (start === -1) return "";
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex(l => l.startsWith("## "));
-  return (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
-}
-
 const reqTitle = section(context, "需求标题");
-const reqOneLiner = section(context, "需求描述（一句话）");
+const reqFull = section(context, "需求描述（全文）");
 
 // 第 5 列 = 仓库（repoRoot 下的仓库目录名）。
 // 2026-10-12 前这里存的是 worktree 名 `<仓名>-<别名>`，改用主仓工作区后已退化为裸仓名。
@@ -103,7 +59,12 @@ const repoName = row.split("|").map(s => s.trim())[5];
 if (!repoName || repoName === "-") fail(`empty repo column for ${alias} in tasks.md`);
 if (repoName.endsWith(`-${alias}`))
   fail(`repo column for ${alias} still holds a worktree name "${repoName}" — put the bare repo dir name instead`);
-const reposDir = reposRoot();
+let reposDir;
+try {
+  reposDir = reposRoot();
+} catch (e) {
+  fail(e.message);
+}
 const repoRoot = path.join(reposDir, repoName);
 if (!fs.existsSync(repoRoot)) fail(`repo dir not found: ${repoRoot}`);
 const repoLabel = path.relative(ROOT, repoRoot).replace(/\\/g, "/") || repoName;
@@ -272,7 +233,8 @@ function findHits(words) {
 
 // ---------- 组装关键词并求命中 ----------
 
-const kws = splitKeywords(`${reqTitle}\n${reqOneLiner}`);
+const keywordText = stripNoise(reqFull).slice(0, 1200);
+const kws = splitKeywords(`${reqTitle}\n${keywordText}`);
 const keywordHits = kws.all.length ? findHits(kws.all).slice(0, MAX_HIT_ROWS) : [];
 
 // ---------- §6 组件反向引用：命中模块里被谁引用 ----------

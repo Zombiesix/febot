@@ -1,9 +1,15 @@
 {
   "repoRoot": "./gitlab",
   "repos": [],
+  "projectMap": [
+    { "product": "示例产品 A", "keywords": ["移动端"], "repo": "example-repo-mobile" },
+    { "product": "示例产品 A", "repo": "example-repo" },
+    { "product": "示例产品 B", "repo": "example-repo-b" }
+  ],
   "branches": {
     "candidates": ["dev"],
-    "default": "dev"
+    "default": "dev",
+    "byRepo": { "example-repo-b": "dev" }
   },
   "jenkins": {
     "base": "",

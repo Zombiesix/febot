@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { readTasks } from "@/lib/server/store";
-import { PipelineBusyError, startPipeline } from "@/lib/server/pipeline/runner";
+import {
+  MissingPlannedDescriptionError,
+  PipelineBusyError,
+  startPipeline,
+} from "@/lib/server/pipeline/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +25,9 @@ export async function POST(
   } catch (e) {
     if (e instanceof PipelineBusyError) {
       return NextResponse.json({ error: e.message }, { status: 409 });
+    }
+    if (e instanceof MissingPlannedDescriptionError) {
+      return NextResponse.json({ error: e.message }, { status: 422 });
     }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "unknown error" },

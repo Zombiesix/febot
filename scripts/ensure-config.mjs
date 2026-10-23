@@ -10,17 +10,12 @@ const TEMPLATES = [
   {
     src: 'example/febot.config.json',
     dst: 'febot.config.json',
-    hint: '请填入 repoRoot / repos / branches / jenkins / teamwork / nextDevOrigins',
+    hint: '请填入 repoRoot / repos / projectMap / branches（default + byRepo）/ jenkins / teamwork / nextDevOrigins',
   },
   {
     src: 'example/tasks.md',
     dst: 'tasks.md',
     hint: '需求元信息表，pipeline-feed 会往里追加行',
-  },
-  {
-    src: 'example/project-map.md',
-    dst: 'project-map.md',
-    hint: '平台产品 → 仓库映射，喂食时查它',
   },
   {
     src: 'example/file-lock.md',

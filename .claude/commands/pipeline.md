@@ -5,10 +5,14 @@
 ## 启动 / 恢复
 
 - 启动（任务ID）：`/pipeline A-001` —— 与 xiaoqian-manager「开始」按钮同款；计划文件是 xiaoqian-manager 生成的临时 md
-- 启动（口头需求）：`/pipeline <一句需求描述>` —— 无任务ID、无 md 文件，同样只跑 ②③（规划+编码+审查+修复）；①④⑤ 天然不存在，全手动
+- 启动（口头需求）：`/pipeline # <标题>` + 下一行 `产品/模块: <module>` + 描述正文 —— 无任务ID、无现成 md，同样只跑 ②③（规划+编码+审查+修复）；①④⑤ 天然不存在，全手动
 - 恢复：`/pipeline resume A-001`（任务ID或别名均可）
 
-**参数判别规则**：参数能对应已接入的需求（`docs/requirements/R-<参数后6位>/` 存在，或 `xiaoqian-manager/data/temp/<参数>.md` 存在）→ 走任务ID流程；否则一律视为口头描述，走下面的口头流程。
+**参数判别规则**：
+
+1. `resume <别名>` → 恢复流程。
+2. 参数能对应已接入的需求（`docs/requirements/<别名>/state.json` 存在）或 xiaoqian-manager 预生成的临时计划文件（`xiaoqian-manager/data/temp/<任务ID>.md` 存在）→ 任务ID流程。
+3. 其余一律按口头流程处理，且**必须当场校验格式**：首个非空行匹配 `^#\s+\S`；存在 `^产品/模块[:：]\s*\S` 行；去掉标题行与模块行后剩余正文非空。任一不满足 → 立即报错并列出缺失项，**不创建临时文件、不调用 feed**。不支持由模型提炼标题，也不猜产品/模块。
 
 主对话动作序：
 
@@ -19,23 +23,93 @@
 
 ## 各阶段委派模板
 
-### init → 用 pipeline-feed skill 喂食（一句话接入）
+### init → 调用 feed 脚本接入
 
-会话开始时，若该需求尚未接入流水线（`state.json` 不存在 / 无 `docs/requirements/<别名>/`），调用 **pipeline-feed** skill，参数 = PM 计划文件路径。**计划文件一律是临时文件**，放 `xiaoqian-manager/data/temp/`，正常收尾后删除：
+会话开始时，若 `docs/requirements/<别名>/state.json` 不存在，先接入需求。确定性操作全部由 `scripts/feed.mjs` 完成；主对话只负责准备计划文件、判断 tier、按退出码分流。
 
-- 任务ID流程：文件由 xiaoqian-manager「写代码」节点的 ▶ 预生成在 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian 侧确认完成标记后自行删除）；人工 `/pipeline <任务ID>` 启动而没有该文件时，主对话从 xiaoqian-manager 的 `data/tasks.json` 找到对应任务、按同格式补写该临时文件（`## 问题描述` 取 `plannedDescription` 非空则用之，否则 `description`），再继续。
-- **口头流程**：参数原文就是需求。主对话先落盘 `xiaoqian-manager/data/temp/R-oral-<MMDDHHmm>.md`：首行 `# <从描述提炼的标题，≤20字>`，`## 问题描述` 放描述原文；别名 = 文件名（`R-oral-<同一时间戳>`），由 pipeline-feed 从文件名取。后续阶段与任务ID流程完全一致。
+**入口一：任务ID流程**
 
-由 skill 完成脚手架：
+计划文件是 `xiaoqian-manager/data/temp/<任务ID>.md`（xiaoqian-manager「写代码」▶ 预生成；人工启动且文件不存在时，主对话从 `data/tasks.json` 找到对应任务，按同格式补写）：
 
-- 抽字段 → 定别名 `R-<任务ID后6位>`
-- 查 `project-map.md` 定**目标仓库**（**基准分支**：读 `febot.config.json` 的 `branches.default`，默认 `dev`，非 master）
-- **开工门禁（必须先过，不过就停）**：校验主仓 `<repoRoot>/<仓库>` ① 当前分支 == `branches.default`，② `git status --porcelain` 为空。
-  （`<repoRoot>` = `febot.config.json` 的 `repoRoot`，默认 `./gitlab`。）
-  不满足 = 上一个需求的改动还没提交 → 停下来让负责人先在 ④ 步 deploy 或人工提交，**绝不允许带着脏工作区开工**（见 done「收尾边界铁律」）。
-- 拷 `_template/` → 填 `context.md`（把 **需求标题 + 一句需求描述** 放最顶）、`tasks.md`、`decisions.md`(tier)、`state.json`(phase=planning 或 coding)
-- 需求标题与一句需求描述进了 context.md 顶部，planner 据此快速理解，plan.md 生成更快更准
-  已接入则跳过，直接读 `state.json` 定下一步。
+```markdown
+# <任务标题>
+
+任务ID: <id>
+查询ID: <demandId>
+别名: R-xxxxxx
+产品/模块: <module>
+版本: <version>
+状态: <status>
+难度: <demandLevel>
+任务类型: <taskType>
+最大工时: <maxHour>
+执行人: <assignee>
+创建人: <createdName>
+
+## 问题描述
+
+<plannedDescription 原文>
+
+## 分配任务说明
+
+<assignDescription 原文>
+```
+
+`## 问题描述` **只取 `plannedDescription`**：为空就报错停止（提示先在「计划」节点填写并保存），**不回退 `description`、不写 `（空）`**，也不生成临时文件。
+
+**入口二：口头流程**
+
+用户输入必须自带标题与模块：
+
+```text
+/pipeline # <标题>
+产品/模块: <module>
+<需求描述（可多行）>
+```
+
+校验通过后，主对话落盘 `xiaoqian-manager/data/temp/R-oral-<MMDDHHmm>.md`，内容固定为：
+
+```markdown
+# <标题（原样，不提炼）>
+
+产品/模块: <module>
+
+## 问题描述
+
+<描述全文>
+
+## 分配任务说明
+```
+
+别名 = 文件名（`R-oral-<同一时间戳>`），由 feed 从文件名取。后续阶段与任务ID流程完全一致。
+
+**调用 feed**
+
+```bash
+node scripts/feed.mjs --plan <计划文件> --json
+```
+
+脚本负责：解析/校验 → `projectMap` 定仓 → 基准分支（`projectMap[].branch` > `branches.byRepo[repo]` > `branches.default`）→ 开工门禁（分支 == 基准分支 且 `git status --porcelain` 为空）→ 拷模板 → 写 `context.md`（标题/全文/附件/目标仓库/基准分支）→ upsert `tasks.md` → **最后**写 `state.json`（`tier=full, phase=init`）。
+
+按退出码分流，**不做补救性写入**：
+
+| code | 含义 | 动作 |
+| ---- | ---- | ---- |
+| 0 | 成功 / 已接入（`already:true`） | 继续 |
+| 1 | 未预期异常 | 贴 stderr，停止 |
+| 2 | 映射未命中 | 把 `details.knownProducts` 给负责人；确认后回填 `projectMap`，不许猜 |
+| 3 | 门禁失败 | 贴实际分支/脏文件，让负责人先在 ④ 步 deploy 或人工提交；禁止 stash/checkout/commit |
+| 5 | 输入或格式不符 | 贴 `details.missing`，让来源方补；不自行补标题/模块/描述 |
+| 6 | 配置/环境错误 | 贴 stderr，停止 |
+
+`already:true` → 读 `statePath` 指向的 `state.json`，按其 `tier` 继续，不重新判 tier。
+
+**tier 判定与落盘**（仅 `already:false`）：
+
+- 输入：feed 输出的 `title` / `description` / `assignment` / `tierHint` / `repo`。
+- 改文案/样式/单文件小修、难度低 → `light`；新增组件、动 store/表格/页面、多步任务 → `full`；拿不准标 `full`。
+- 执行 `node scripts/feed.mjs --set-tier <别名> --tier <light|full> --reason "<具体理由>"`；脚本写 `decisions.md`、`tasks.md`、`state.json`，并把 `phase` 置为 `planning`（full）或 `coding`（light）。
+- 落盘后重新读 `state.json`，按 `phase` 进入对应阶段。
 
 > **记忆增强（可选，全链路软降级）**：以下所有 `hindsight-memo.py` 调用都是**尽力而为**——
 > Hindsight 未起 / 无网络 / 接口异常 → 产出空结果、跳过该步，**绝不阻塞流水线、绝不编造**。
@@ -46,7 +120,7 @@
 ```
 python scripts/hindsight-memo.py recall --bank febot-project --query "<需求标题+产品/模块>" --budget 500 --out docs/requirements/<别名>/recall-history.md
 python scripts/hindsight-memo.py recall --bank <产品线bank> --query "<需求标题>" --budget 800 --out docs/requirements/<别名>/recall-history-line.md
-若以上文件非空，把命中摘要以「## 历史参考（Hindsight）」小节追加进 context.md 末尾（注明来源需求ID）；为空则删除这两个文件。
+若以上文件非空，把命中摘要填进 context.md 已有的 `## 历史参考（Hindsight）` 小节（注明来源需求ID）；该小节不存在才在末尾追加，避免出现两个同名标题。为空则删除这两个文件。
 ```
 
 ### planning → 先 recon，再 @planner（仅 full）
@@ -155,7 +229,7 @@ python scripts/hindsight-memo.py reflect --bank li-expertise --query "本需求(
 ```
 把 reflect 摘要贴出来**给负责人过目**；人工点头后，再把结论 retain 回库（`--context "R-<别名> 复盘"`）。**reflect 不自动入库**——防止 LLM 幻觉污染记忆；这与现状"人工只卡门禁"一致。
 
-> **收尾边界（铁律，2026-10-12 修订：不再用 worktree）**：AgentTeam **直接在主仓基准分支工作区里改代码**，改动以**未提交**形式留在工作区，**不进行 add / commit / push 任何代码**。基准分支= `febot.config.json` 的 `branches.default`（默认 `dev`，非 master），主仓 checkout 常驻该分支。人工验收**也就在这个工作区上跑 dev server**（不再单列步骤，这是放弃 worktree 换来的：依赖、`.env`、后端代理、登录态全都现成）；提交、合并、推送、部署是 ④ 步，由小前端在 xiaoqian-manager 的 deploy 阶段手动完成。AgentTeam 全程不触碰任何提交与远程写操作。
+> **收尾边界（铁律，2026-10-12 修订：不再用 worktree）**：AgentTeam **直接在主仓基准分支工作区里改代码**，改动以**未提交**形式留在工作区，**不进行 add / commit / push 任何代码**。基准分支按 `projectMap[].branch` > `branches.byRepo[repo]` > `branches.default`（默认 `dev`，非 master）解析，主仓 checkout 常驻该分支。人工验收**也就在这个工作区上跑 dev server**（不再单列步骤，这是放弃 worktree 换来的：依赖、`.env`、后端代理、登录态全都现成）；提交、合并、推送、部署是 ④ 步，由小前端在 xiaoqian-manager 的 deploy 阶段手动完成。AgentTeam 全程不触碰任何提交与远程写操作。
 >
 > **隔离怎么保证（替代 worktree 的两条）**：
 > ① **开工门禁** —— init 阶段校验主仓在固定分支且工作区干净，脏就停（上一条需求必须已在 ④ 步提交掉）；

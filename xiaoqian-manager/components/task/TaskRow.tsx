@@ -45,6 +45,8 @@ export default function TaskRow({
   const stageTotal = task.stages.length;
   const progress = stageTotal ? (doneCount / stageTotal) * 100 : 0;
   const [copied, setCopied] = useState(false);
+  // 计划描述为空时，服务端会 422；前端直接禁用 ▶，别让用户白点。
+  const startDisabled = !task.plannedDescription.trim();
 
   const copyTitle = async () => {
     try {
@@ -116,6 +118,7 @@ export default function TaskRow({
                 stages={task.stages}
                 onOpen={onOpenStage}
                 onStartPipeline={() => onStartPipeline(task.id)}
+                startDisabled={startDisabled}
               />
             </div>
           </div>

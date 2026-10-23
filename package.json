@@ -9,6 +9,7 @@
     "om": "node om/server.js",
     "xiaoqian": "yarn --cwd xiaoqian-manager dev",
     "recon": "node scripts/recon.mjs",
+    "feed": "node scripts/feed.mjs",
     "assistant:probe": "node scripts/assistant-probe.mjs",
     "assistant:memo": "node scripts/assistant-memo.mjs",
     "assistant:map": "node scripts/assistant-map.mjs"

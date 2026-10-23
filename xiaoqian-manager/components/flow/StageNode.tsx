@@ -20,6 +20,8 @@ export type StageNodeData = {
   stage: Stage;
   onOpen: (stage: Stage) => void;
   onStartPipeline?: () => void;
+  /** 计划描述为空时禁用「写代码」▶，避免点下去才被 API 422 拦回 */
+  startDisabled?: boolean;
 };
 export type StageNodeType = Node<StageNodeData, "stage">;
 
@@ -30,7 +32,7 @@ const ICONS = {
 } as const;
 
 function StageNode({ data }: NodeProps<StageNodeType>) {
-  const { stage, onOpen, onStartPipeline } = data;
+  const { stage, onOpen, onStartPipeline, startDisabled } = data;
   const [starting, setStarting] = useState(false);
   const v = stageVisual(stage.status);
   const Icon = ICONS[stage.key];
@@ -38,6 +40,7 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
     stage.key === "coder" &&
     (stage.status === "pending" || stage.status === "failed") &&
     !!onStartPipeline;
+  const blocked = !!startDisabled;
 
   const subtitle =
     stage.status === "done" && stage.finishedAt
@@ -83,9 +86,17 @@ function StageNode({ data }: NodeProps<StageNodeType>) {
       {canStart && (
         <button
           type="button"
-          title="开始流水线：弹出新窗口跑 Claude Code（AI 规划 + 编码 + 审查 + 修复）"
-          disabled={starting}
-          className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-85 disabled:opacity-60"
+          title={
+            blocked
+              ? "请先在「计划」节点填写并保存描述，再启动写代码"
+              : "开始流水线：弹出新窗口跑 Claude Code（AI 规划 + 编码 + 审查 + 修复）"
+          }
+          disabled={starting || blocked}
+          className={`absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full shadow-sm transition-opacity disabled:opacity-60 ${
+            blocked
+              ? "cursor-not-allowed bg-muted text-muted-foreground"
+              : "bg-primary text-primary-foreground hover:opacity-85"
+          }`}
           onClick={(e) => {
             e.stopPropagation();
             if (!onStartPipeline || starting) return;

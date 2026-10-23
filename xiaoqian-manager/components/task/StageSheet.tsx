@@ -55,8 +55,9 @@ export default function StageSheet({
   );
   const [owner, setOwner] = useState(sheet?.stage.owner ?? "");
   const [note, setNote] = useState(sheet?.stage.note ?? "");
+  // 只回填计划描述本身；不能拿平台原文兜底，否则一保存就把原文灌进 plannedDescription。
   const [plannedDescription, setPlannedDescription] = useState(
-    task?.plannedDescription || task?.description || "",
+    task?.plannedDescription ?? "",
   );
   const [repo, setRepo] = useState("");
   const [targetBranch, setTargetBranch] = useState("");

@@ -15,7 +15,6 @@ docs/assistant/
 # 全部锚定仓库根：不带斜杠的规则会按 basename 匹配任意层级，把 example/ 下的同名模板也吞掉
 /febot.config.json
 /tasks.md
-/project-map.md
 /file-lock.md
 /om/data.json
 /.claude/settings.json

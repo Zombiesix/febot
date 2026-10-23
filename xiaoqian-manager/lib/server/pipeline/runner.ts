@@ -37,6 +37,14 @@ export class PipelineBusyError extends Error {
   }
 }
 
+// 严格必填：没有「计划」节点整理过的描述就不允许开跑，源头上不生成 `（空）` 计划文件。
+export class MissingPlannedDescriptionError extends Error {
+  constructor() {
+    super("计划描述为空：请先在「计划」节点填写并保存描述，再启动写代码");
+    this.name = "MissingPlannedDescriptionError";
+  }
+}
+
 interface TempFiles {
   plan: string;
   wrapper: string;
@@ -64,6 +72,12 @@ function fmtLocal(d: Date): string {
 
 // 字段格式对齐 pipeline-feed 的抽取契约：首行 `# ` 标题 + 元信息行 + 问题描述/分配任务说明
 export function renderPlanFile(task: Task): string {
+  const title = task.title.trim();
+  if (!title) throw new Error("任务标题为空，无法生成计划文件");
+  // 只认研发人员在「计划」节点整理后的描述；不回退平台原文，也不写占位符。
+  const description = task.plannedDescription.trim();
+  if (!description) throw new MissingPlannedDescriptionError();
+
   const alias = `R-${task.id.slice(-6)}`;
   const meta = [
     `任务ID: ${task.id}`,
@@ -73,20 +87,19 @@ export function renderPlanFile(task: Task): string {
     `版本: ${task.version}`,
     `状态: ${task.twStatus}`,
     `难度: ${task.demandLevel}`,
+    `任务类型: ${task.taskType}`,
     `最大工时: ${task.maxHour ?? ""}`,
     `执行人: ${task.assignee}`,
     `创建人: ${task.createdName}`,
   ]
     .filter((l) => !l.endsWith(": "))
     .join("\n");
-  // 优先使用研发人员在「计划」节点整理后的描述
-  const description = task.plannedDescription.trim() || task.description || "（空）";
-  return `# ${task.title}\n\n${meta}\n\n## 问题描述\n\n${description}\n\n## 分配任务说明\n\n${task.assignDescription || "（空）"}\n`;
+  return `# ${title}\n\n${meta}\n\n## 问题描述\n\n${description}\n\n## 分配任务说明\n\n${task.assignDescription.trim()}\n`;
 }
 
-function writePlanFile(task: Task, file: string): void {
+function writePlanFile(content: string, file: string): void {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
-  fs.writeFileSync(file, renderPlanFile(task), "utf8");
+  fs.writeFileSync(file, content, "utf8");
 }
 
 // 包装脚本：先做启动自检，再跑 claude，最后把退出码落盘。
@@ -262,6 +275,9 @@ export async function startPipeline(task: Task): Promise<Task> {
     // 上一轮可能因 dev 重启/异常残留：先清掉，避免旧完成标记直接判成功
     rmQuiet([files.done, files.exit, files.wrapper, files.plan]);
 
+    // 先渲染（标题/描述校验都在这里），再置 active：校验失败时任务状态原样不动。
+    const planContent = renderPlanFile(task);
+
     // 先置状态，再 spawn：轮询/exit 回调里依赖「coder 已是 active」做守卫。
     // 只碰 coder：planer 的状态由人工决定，这里不替用户收口。
     const now = new Date().toISOString();
@@ -294,7 +310,7 @@ export async function startPipeline(task: Task): Promise<Task> {
     // 计划文件与包装脚本都只在 spawn 前一刻落盘；任一步失败都回滚 coder，别留虚假进行中
     let child: ChildProcess;
     try {
-      writePlanFile(task, files.plan);
+      writePlanFile(planContent, files.plan);
       writeWrapper(task.id, files.wrapper);
       child = spawn(
         "cmd.exe",
