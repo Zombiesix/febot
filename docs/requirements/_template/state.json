@@ -4,8 +4,28 @@
   "phase": "init",
   "iteration": 0,
   "maxIteration": 2,
+  "repo": null,
+  "baseBranch": null,
+  "taskId": null,
+  "demandId": null,
+  "planFile": null,
+  "gate": {
+    "checkedAt": null,
+    "branch": null,
+    "head": null,
+    "branchOk": null,
+    "cleanOk": null
+  },
+  "lastAgent": null,
+  "lastTransitionKey": null,
   "blockers": [],
   "questions": [],
-  "lastAgent": null,
+  "selectedFiles": [],
+  "locate": null,
+  "timings": {
+    "phases": {},
+    "machineMs": {},
+    "waitMs": {}
+  },
   "updatedAt": "2026-09-22T00:00:00"
 }

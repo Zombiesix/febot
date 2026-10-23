@@ -200,7 +200,7 @@ python scripts/ensure-banks.py
 - **远程提交、push、合并到目标分支**是 ④ 步，由 `小前端` 在 xiaoqian-manager 的 deploy 阶段手动完成（含 cherry-pick）。该阶段的代码本就基于主仓工作区，且会拒绝分离头指针状态，与这套模型天然一致。
 - 这样 AI 永远接触不到远程写操作，出问题也是"本地可回滚、远程有人把关"。
 
-> **隔离靠什么（2026-10-12 起弃用 worktree）**：① **开工门禁**——init 阶段校验主仓在基准分支且 `git status --porcelain` 为空，脏就停下来等人工提交；② **改动白名单**——coder/reviewer 只认 plan.md「将改动文件清单」内的文件，收尾按它校验。
+> **隔离靠什么（2026-10-12 起弃用 worktree）**：① **开工门禁**——init 阶段校验主仓在基准分支且 `git status --porcelain` 为空，脏就停下来等人工提交；② **改动白名单**——coder/reviewer 只认 `plan.files.json` 内的文件，收尾由 `advance check` 校验。
 > 代价是**同一仓库同一时间只能跑一个需求**（并行只在不同仓之间成立）。换来的正是上面那条：随时能起服务看效果。
 
 ---
@@ -211,18 +211,18 @@ python scripts/ensure-banks.py
 | ------------ | --------------------------------------------------------------------- | ----------------------------------------------- |
 | orchestrator | 主对话 + [.claude/commands/pipeline.md](.claude/commands/pipeline.md) | 控流程、读 state、委派、汇总;**不住任何上下文** |
 | planner      | [.claude/agents/planner.md](.claude/agents/planner.md)                | 只规划,出 `plan.md` + 编号问题                  |
-| coder        | [.claude/agents/coder.md](.claude/agents/coder.md)                    | 写代码,跑 lint/test/build                       |
-| reviewer     | [.claude/agents/reviewer.md](.claude/agents/reviewer.md)              | 只读审查 git diff,出 blocker/suggestion/nit     |
+| coder        | [.claude/agents/coder.md](.claude/agents/coder.md)                    | 写代码,跑 lint/test（full/express 两模式）      |
+| reviewer     | [.claude/agents/reviewer.md](.claude/agents/reviewer.md)              | 只读 `review-input.txt`,出 blocker/suggestion/nit |
 
 核心不变式:
 
 - **文件即接口** —— 不靠对话历史,靠落盘。
-- **流程分级** —— `tier: full | light`,小改动不进昂贵环节。
+- **流程分级** —— `tier: full | express`，由 locate 的确定性定位结果决定，小改动不进昂贵环节。
 - **人工只卡门禁** —— 全部拍板进 `decisions.md`,留审计链。
 
 ### 喂食一个需求（PM 任务 / 口头需求 → 流水线输入）
 
-> 由 **`scripts/feed.mjs`** 确定性完成：解析计划文件、定仓库与基准分支、跑开工门禁、拷模板、写 context、upsert `tasks.md`，**最后**写 `state.json`。orchestrator 只负责判断 tier，并调用 `--set-tier` 落盘。
+> 由 **`scripts/feed.mjs`** 确定性完成：解析计划文件、定仓库与基准分支、跑开工门禁、拷模板、写 context、upsert `tasks.md`，**最后**写 `state.json`（固定 `tier=full, phase=init`）。tier 不由 feed 判定——进入 `locating` 后由 `scripts/locate.mjs` 的确定性定位结果决定，再由 `advance set-tier` 落盘。
 
 **入口一：任务ID流程**（xiaoqian-manager 的「写代码」▶ 自动生成计划文件）
 
@@ -270,8 +270,10 @@ python scripts/ensure-banks.py
 3. **定基准分支**：`projectMap[].branch` > `branches.byRepo[repo]` > `branches.default`。
 4. **开工门禁**：`HEAD == 基准分支` 且 `git status --porcelain` 为空；否则 exit 3。
 5. **脚手架**：复制 `_template/`，替换 `{REQUIREMENT_ID}`，重写 `context.md`（标题/全文/附件/目标仓库/基准分支），upsert `tasks.md`，**最后**写 `state.json`（`tier=full, phase=init`，含 `taskId/demandId/repo/baseBranch/gate`）。
-6. **tier 判定**：orchestrator 依据 `tierHint`（任务类型/难度/最大工时）判定后执行
-   `node scripts/feed.mjs --set-tier <别名> --tier light|full --reason "<理由>"`，脚本负责写 `decisions.md`、`tasks.md` 与 `state.json`（`phase` 随之为 `planning` / `coding`）。
+6. **tier 判定（locating 阶段）**：`node scripts/locate.mjs <别名> --json` 产出 `locate.md/json/selected-files.json`；
+   `recommendedTier=express`（`confidence=high` + 候选 ≤5 + 无敏感文件）时由负责人确认后执行
+   `node scripts/advance.mjs set-tier --tier express`（写 `plan.files.json`，直接进 coding）；
+   medium/low 或负责人选全轨 → `advance set-tier --tier full --reason-file <理由>`（进 planning）。
 7. **幂等**：`state.json` 已存在 → exit 0 + `already:true`，不重复写；别名被其它任务占用 → exit 6。`--dry-run` 只输出将要执行的动作，不落任何文件。
 
 退出码：`0` 成功/已接入，`1` 未预期异常，`2` 映射未命中，`3` 门禁失败，`5` 输入/格式不符，`6` 配置/环境错误。
@@ -287,13 +289,13 @@ python scripts/ensure-banks.py
 
 主对话读 state → feed(如需，含开工门禁)→ recon 事实底稿(`node scripts/recon.mjs <ID>`，确定性、覆盖式)→ @planner 出计划(可能的 Q 等答) → 人工确认拍板 `decisions.md` → @coder 编码跑测 → @reviewer 审查 → blocker 回 @coder 修(≤2轮)→ verify → done（**改动留在主仓基准分支工作区，不 add/commit/push**）。
 
-### light 流程
+### express 快轨
 
 ```text
-> /pipeline R-16931        # tier=light 时自动走 精简三段
+> /pipeline R-16931        # locate 判为 high/express 时，负责人确认后走快轨
 ```
 
-直接 coding → verify → done，跳过 planner / plan_confirm / reviewer。
+`locating` 先跑确定性定位（`scripts/locate.mjs`），候选 ≤5、置信度高、无敏感文件时由负责人确认，随后 `advance set-tier --tier express`：直接 coding → verify → done，跳过 planning / plan_confirm / reviewer。verify 未全绿自动回 coding，最多 2 轮。候选不够用要写 `locate-gap.md` 停下，禁止静默扩大改动面。
 
 ---
 
@@ -430,9 +432,13 @@ docs/requirements/
 docs/assistant/<仓>/map.md   助手项目地图（生成物，时点快照）
 docs/assistant-*.md          助手的设计计划 / 实施步骤 / 使用说明
 docs/hindsight-*.md          Hindsight 方案与接入
-scripts/recon.mjs            流水线事实底稿
-scripts/feed.mjs             需求接入（解析/定仓/门禁/脚手架/--set-tier）
-scripts/lib/febot.mjs        recon 与 feed 共用的配置/Markdown 工具
+scripts/recon.mjs            流水线事实底稿（复用仓索引缓存）
+scripts/locate.mjs           确定性定位（locate.md/json、selected-files.json）
+scripts/advance.mjs          状态机唯一写入器（status/gate/set-phase/set-tier/check/review-input/done）
+scripts/feed.mjs             需求接入（解析/定仓/门禁/脚手架，固定 tier=full/phase=init）
+scripts/lib/febot.mjs        共享底座：配置/原子读写/git/门禁/白名单
+scripts/lib/requirement.mjs  需求/仓库/分支解析
+scripts/lib/repo-index.mjs   仓索引缓存（.febot/index，按 HEAD+status 命中）
 scripts/hindsight-memo.py    流水线侧记忆 CLI
 scripts/assistant-{memo,map,probe}.mjs   助手侧记忆 CLI / 地图 / 探针
 xiaoqian-manager/        小千管理(Next.js) —— 全部流程的宿主(①④⑤)
@@ -459,7 +465,7 @@ om/                      发版看板(独立,见 §16)
 
 ### 门禁清单（每次跑都要盯）
 
-1. light/full 在 init 定，写 `decisions.md`
+1. full/express 在 `locating` 定（locate 结果 + 负责人确认），写 `decisions.md`
 2. plan 未确认不得编码(full)
 3. reviewer 有 blocker 必须回 coder 修(full)
 4. 修复 ≤ 2 轮,超了转人工
@@ -467,7 +473,7 @@ om/                      发版看板(独立,见 §16)
 6. **开工门禁：主仓在解析出的基准分支 + 工作区干净**，不干净不开工（替代 worktree 的隔离手段）
 7. **同仓串行**：一个仓库同一时间只跑一个需求；并行只在不同仓之间
 8. 每需求独立会话（上下文隔离，与 worktree 无关）
-9. coder/reviewer 只认 plan.md「将改动文件清单」，不越界、不动清单外的改动
+9. coder/reviewer 只认 `plan.files.json`（机器唯一白名单；plan.md 清单只供人读），不越界、不动清单外的改动
 10. subagent 只收摘要,不接完整代码/推理
 11. 敏感文件(.env\*、febot.config.json、hindsight.env)必须人工审批
 12. 人工验收后才提交合并——**AgentTeam 只留未提交改动，提交/推送是 ④ 步，由人做**

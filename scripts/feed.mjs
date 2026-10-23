@@ -4,22 +4,34 @@
  *
  * 用法：
  *   node scripts/feed.mjs --plan <计划文件> [--alias R-xxxxxx] [--module <产品/模块>] [--json] [--dry-run]
- *   node scripts/feed.mjs --set-tier <别名> --tier light|full --reason "<理由>" [--json]
  *
  * 职责：解析/校验计划文件 → 定仓库与基准分支 → 开工门禁 → 拷模板 → 写 context
  *       → upsert tasks.md → 最后写 state.json。所有操作确定性、可重跑。
+ *
+ * 默认写 tier=full / phase=init；tier 不再由 feed 判定，locate 后由
+ * `advance set-tier` 决定 full | express。`--set-tier` 已移除（exit 5）。
  *
  * 退出码：0 成功（含已接入）；1 未预期异常；2 映射未命中；3 门禁失败；
  *         5 输入/格式不合契约；6 配置/环境错误。
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import { ROOT, ConfigError, readConfig, reposRoot, section } from "./lib/febot.mjs";
+import {
+  REQUIREMENTS_DIR,
+  ROOT,
+  ScriptError,
+  TASKS_PATH,
+  TEMPLATE_DIR,
+  checkGate,
+  displayPath,
+  isPathInside,
+  readConfig,
+  readText,
+  section,
+  toPosix,
+} from "./lib/febot.mjs";
+import { resolveRepo as resolveRepoFromCfg } from "./lib/requirement.mjs";
 
-const REQUIREMENTS_DIR = path.join(ROOT, "docs", "requirements");
-const TEMPLATE_DIR = path.join(REQUIREMENTS_DIR, "_template");
-const TASKS_PATH = path.join(ROOT, "tasks.md");
 const ALIAS_RE = /^R-[A-Za-z0-9-]+$/;
 const TEXT_EXT = new Set([".md", ".json", ".txt"]);
 
@@ -39,8 +51,8 @@ const META_KEYS = new Set([
 
 const USAGE = `用法:
   node scripts/feed.mjs --plan <计划文件> [--alias R-xxxxxx] [--module <产品/模块>] [--json] [--dry-run]
-  node scripts/feed.mjs --set-tier <别名> --tier light|full --reason "<理由>" [--json]
 
+默认 tier=full / phase=init；接入后用 node scripts/advance.mjs set-tier 选择 full|express。
 退出码: 0 成功/已接入, 1 异常, 2 映射未命中, 3 门禁失败, 5 输入错误, 6 配置错误
 `;
 
@@ -57,24 +69,25 @@ function fail(code, message, details) {
   throw new FeedError(code, message, details);
 }
 
-// ---------- 通用 ----------
-
-function displayPath(abs) {
-  const rel = path.relative(ROOT, abs);
-  if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) return rel.replace(/\\/g, "/");
-  return String(abs).replace(/\\/g, "/");
+/** lib 的 ScriptError（2/5/6）转成 feed 自己的业务退出码 */
+function rethrowAsFeedError(e) {
+  if (e instanceof FeedError) throw e;
+  if (e instanceof ScriptError) throw new FeedError(e.code, e.message, e.details);
+  throw e;
 }
 
-function readText(abs, code, label) {
+// ---------- 通用 ----------
+
+function readTextOrFail(abs, code, label) {
   try {
-    return fs.readFileSync(abs, "utf8").replace(/^﻿/, "");
+    return readText(abs);
   } catch {
     fail(code, `${label} 不存在或不可读：${displayPath(abs)}`);
   }
 }
 
-function readJson(abs, code, label) {
-  const text = readText(abs, code, label);
+function readJsonOrFail(abs, code, label) {
+  const text = readTextOrFail(abs, code, label);
   try {
     return JSON.parse(text);
   } catch {
@@ -84,14 +97,6 @@ function readJson(abs, code, label) {
 
 function cell(value) {
   return String(value ?? "").replace(/\|/g, "\\|").trim();
-}
-
-function fmtLocal(d) {
-  const p = (n) => String(n).padStart(2, "0");
-  return (
-    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-  );
 }
 
 function listFiles(dir) {
@@ -114,17 +119,17 @@ function walkTextFiles(dir, out = []) {
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const out = {
-    plan: null,
-    alias: null,
-    module: null,
-    json: false,
-    dryRun: false,
-    setTier: null,
-    tier: null,
-    reason: null,
-    help: false,
-  };
+  const out = { plan: null, alias: null, module: null, json: false, dryRun: false, help: false };
+  if (argv.includes("--set-tier")) {
+    fail(
+      5,
+      "--set-tier 已移除：feed 默认 tier=full；tier 由 locate 结果决定，请用 " +
+        "`node scripts/advance.mjs set-tier <别名> --tier full|express`",
+    );
+  }
+  if (argv.includes("--tier") || argv.includes("--reason")) {
+    fail(5, "--tier / --reason 已移除，请改用 `advance set-tier`");
+  }
   const take = (i, name) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) fail(5, `${name} 缺少参数值`);
@@ -151,18 +156,6 @@ function parseArgs(argv) {
       case "--dry-run":
         out.dryRun = true;
         break;
-      case "--set-tier":
-        out.setTier = take(i, "--set-tier");
-        i += 1;
-        break;
-      case "--tier":
-        out.tier = take(i, "--tier");
-        i += 1;
-        break;
-      case "--reason":
-        out.reason = take(i, "--reason");
-        i += 1;
-        break;
       case "--help":
       case "-h":
         out.help = true;
@@ -171,8 +164,6 @@ function parseArgs(argv) {
         fail(5, `未知参数：${a}`);
     }
   }
-  if (out.setTier && out.plan) fail(5, "--set-tier 与 --plan 不能同时使用");
-  if (!out.setTier && (out.tier || out.reason)) fail(5, "--tier / --reason 只能与 --set-tier 一起使用");
   return out;
 }
 
@@ -251,7 +242,7 @@ function parsePlan(md, planAbs, args) {
   };
 }
 
-function validatePlan(parsed, args) {
+function validatePlan(parsed) {
   const description = parsed.description.trim();
   if (!description || description === "（空）") {
     fail(5, "缺少问题描述：计划文件的 ## 问题描述 不能为空，且不能是「（空）」", {
@@ -270,140 +261,46 @@ function validatePlan(parsed, args) {
 // ---------- 定仓与分支 ----------
 
 function resolveRepo(cfg, module, title) {
-  const projectMap = cfg.raw.projectMap;
-  if (!Array.isArray(projectMap)) {
-    fail(6, "febot.config.json 缺少 projectMap 数组（请参考 example/febot.config.json）");
-  }
-
-  const candidates = projectMap.filter((e) => e && e.product === module);
-  if (candidates.length === 0) {
-    const known = [...new Set(projectMap.map((e) => e?.product).filter(Boolean))];
-    fail(2, `projectMap 未命中：产品/模块 "${module}" 没有映射`, {
-      module,
-      knownProducts: known,
-    });
-  }
-
-  const titleLower = title.toLowerCase();
-  const keywordHits = candidates.filter(
-    (e) =>
-      Array.isArray(e.keywords) &&
-      e.keywords.some((k) => String(k).trim() && titleLower.includes(String(k).trim().toLowerCase())),
-  );
-  let entry = keywordHits[0] ?? null;
-
-  if (!entry) {
-    const fallbacks = candidates.filter((e) => !Array.isArray(e.keywords) || e.keywords.length === 0);
-    if (fallbacks.length === 0) {
-      fail(2, `productMap 命中 "${module}" 但没有无关键词的兜底条目`, {
-        module,
-        candidates: candidates.map((e) => ({ keywords: e.keywords ?? [], repo: e.repo })),
-      });
-    }
-    if (fallbacks.length > 1) {
-      fail(6, `projectMap 配置歧义："${module}" 有 ${fallbacks.length} 条无关键词兜底条目`, {
-        module,
-        repos: fallbacks.map((e) => e.repo),
-      });
-    }
-    entry = fallbacks[0];
-  }
-
-  const repo = typeof entry.repo === "string" ? entry.repo.trim() : "";
-  if (!repo) fail(6, `projectMap 中 "${module}" 的条目缺少 repo`);
-
-  const repos = Array.isArray(cfg.raw.repos) ? cfg.raw.repos : [];
-  if (!repos.includes(repo)) {
-    fail(6, `仓库 "${repo}" 不在 febot.config.json 的 repos 中`, { repo, repos });
-  }
-
-  let reposDir;
+  let resolved;
   try {
-    reposDir = reposRoot(cfg);
+    resolved = resolveRepoFromCfg(cfg, module, title);
   } catch (e) {
-    fail(6, e instanceof ConfigError ? e.message : String(e.message));
+    rethrowAsFeedError(e);
   }
-  const repoDir = path.join(reposDir, repo);
+
+  const repoDir = resolved.repoDir;
   if (!fs.existsSync(repoDir) || !fs.statSync(repoDir).isDirectory()) {
     fail(6, `仓库目录不存在：${displayPath(repoDir)}`, { repoDir: displayPath(repoDir) });
   }
-
-  const resolved = resolveBranch(cfg, entry, repo);
-  return { repo, repoDir, branch: resolved.branch, branchSource: resolved.source };
-}
-
-function resolveBranch(cfg, entry, repo) {
-  const branches = cfg.raw.branches;
-  if (entry && typeof entry.branch === "string" && entry.branch.trim()) {
-    return { branch: entry.branch.trim(), source: "projectMap" };
-  }
-  if (
-    branches &&
-    typeof branches === "object" &&
-    !Array.isArray(branches) &&
-    branches.byRepo &&
-    typeof branches.byRepo[repo] === "string" &&
-    branches.byRepo[repo].trim()
-  ) {
-    return { branch: branches.byRepo[repo].trim(), source: "branches.byRepo" };
-  }
-  if (
-    branches &&
-    typeof branches === "object" &&
-    !Array.isArray(branches) &&
-    typeof branches.default === "string" &&
-    branches.default.trim()
-  ) {
-    return { branch: branches.default.trim(), source: "branches.default" };
-  }
-  fail(6, `无法确定仓库 ${repo} 的基准分支：请配置 projectMap[].branch、branches.byRepo 或 branches.default`, {
-    repo,
-  });
+  return resolved;
 }
 
 // ---------- 开工门禁 ----------
 
-function git(repoDir, gitArgs) {
+function gateOrFail(repoDir, branch) {
+  let g;
   try {
-    return execFileSync("git", ["-C", repoDir, ...gitArgs], {
-      encoding: "utf8",
-      timeout: 10000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    g = checkGate(repoDir, branch);
   } catch (e) {
-    const detail =
-      (e.stdout && String(e.stdout).trim()) ||
-      (e.stderr && String(e.stderr).trim()) ||
-      e.message ||
-      "unknown error";
-    fail(3, `git ${gitArgs.join(" ")} 失败：${detail}`, {
-      repoDir: displayPath(repoDir),
-      command: `git ${gitArgs.join(" ")}`,
-    });
+    rethrowAsFeedError(e);
   }
-}
-
-function checkGate(repoDir, expectedBranch) {
-  const head = git(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const status = git(repoDir, ["status", "--porcelain"]);
-  const checkedAt = new Date().toISOString();
-  if (head !== expectedBranch) {
-    fail(3, `分支不符：当前 ${head}，期望 ${expectedBranch}`, {
-      head,
-      expected: expectedBranch,
-      status,
+  if (!g.branchOk) {
+    fail(3, `分支不符：当前 ${g.branch}，期望 ${branch}`, {
+      head: g.branch,
+      expected: branch,
+      status: g.status,
       repoDir: displayPath(repoDir),
     });
   }
-  if (status) {
-    fail(3, `工作区不干净（上一个需求可能还没提交）：\n${status}`, {
-      head,
-      expected: expectedBranch,
-      dirty: status,
+  if (!g.clean) {
+    fail(3, `工作区不干净（上一个需求可能还没提交）：\n${g.status}`, {
+      head: g.branch,
+      expected: branch,
+      dirty: g.status,
       repoDir: displayPath(repoDir),
     });
   }
-  return { head, expected: expectedBranch, clean: true, checkedAt };
+  return g;
 }
 
 // ---------- 脚手架 ----------
@@ -479,14 +376,30 @@ function upsertTaskRow(alias, module, repo) {
 function templateState() {
   const p = path.join(TEMPLATE_DIR, "state.json");
   try {
-    return JSON.parse(readText(p, 6, "模板 state.json"));
+    return JSON.parse(readTextOrFail(p, 6, "模板 state.json"));
   } catch (e) {
     if (e instanceof FeedError) throw e;
     fail(6, `模板 state.json 不是合法 JSON：${displayPath(p)}`);
   }
 }
 
-function writeState(statePath, { base, alias, taskId, demandId, repo, branch, gate }) {
+/**
+ * 计划文件相对 ROOT 的路径；只接受 xiaoqian-manager/data/temp 与需求目录内的文件。
+ * 不在允许目录 → null + stderr 警告（不阻塞旧用法）。
+ */
+function computePlanFile(alias, planAbs) {
+  const allowed = [
+    path.join(ROOT, "xiaoqian-manager", "data", "temp"),
+    path.join(REQUIREMENTS_DIR, alias),
+  ];
+  if (allowed.some((d) => isPathInside(d, planAbs))) return toPosix(displayPath(planAbs));
+  process.stderr.write(
+    `feed: 警告：计划文件不在 xiaoqian-manager/data/temp 或 docs/requirements/${alias} 内，state.planFile 置空\n`,
+  );
+  return null;
+}
+
+function writeState(statePath, { base, alias, taskId, demandId, repo, branch, gate, planFile }) {
   const state = { ...base };
   state.requirement = alias;
   state.tier = "full";
@@ -495,12 +408,19 @@ function writeState(statePath, { base, alias, taskId, demandId, repo, branch, ga
   state.maxIteration = Number.isInteger(state.maxIteration) ? state.maxIteration : 2;
   state.blockers = Array.isArray(state.blockers) ? state.blockers : [];
   state.questions = Array.isArray(state.questions) ? state.questions : [];
-  state.lastAgent = null;
+  state.lastAgent = "orchestrator";
   state.taskId = taskId || null;
   state.demandId = demandId || null;
   state.repo = repo;
   state.baseBranch = branch;
-  state.gate = { checkedAt: gate.checkedAt, branchOk: true, cleanOk: true };
+  state.planFile = planFile;
+  state.gate = {
+    checkedAt: gate.checkedAt,
+    branch: gate.branch,
+    head: gate.commit,
+    branchOk: true,
+    cleanOk: true,
+  };
   state.updatedAt = new Date().toISOString();
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
@@ -527,6 +447,7 @@ function successPayload(parsed, ctx) {
     branch: ctx.branch,
     branchSource: ctx.branchSource,
     gate: ctx.gate ?? null,
+    planFile: ctx.planFile ?? null,
     requirementDir: displayPath(ctx.reqDir),
     statePath: displayPath(ctx.statePath),
     description: parsed.description ?? "",
@@ -534,6 +455,7 @@ function successPayload(parsed, ctx) {
     tierHint: tierHint(parsed),
     files: ctx.files,
     dryRun: ctx.dryRun,
+    elapsedMs: ctx.elapsedMs ?? null,
     actions: ctx.actions,
   };
 }
@@ -551,14 +473,15 @@ function emit(args, payload) {
   }
   const prefix = payload.dryRun ? "feed(dry-run)" : "feed";
   process.stdout.write(
-    `${prefix}: ${payload.alias} -> ${payload.requirementDir} repo=${payload.repo} branch=${payload.branch}\n`,
+    `${prefix}: ${payload.alias} -> ${payload.requirementDir} repo=${payload.repo} branch=${payload.branch} tier=full phase=init\n`,
   );
 }
 
 function runFeed(args) {
+  const t0 = Date.now();
   if (!args.plan) fail(5, "缺少 --plan <计划文件>");
   const planAbs = path.resolve(ROOT, args.plan);
-  const md = readText(planAbs, 5, "计划文件");
+  const md = readTextOrFail(planAbs, 5, "计划文件");
   const parsed = parsePlan(md, planAbs, args);
 
   const reqDir = path.join(REQUIREMENTS_DIR, parsed.alias);
@@ -566,7 +489,7 @@ function runFeed(args) {
 
   // 幂等判断先于门禁：接入后仓库本来就会有未提交改动，重跑不能被 exit 3 拦住。
   if (fs.existsSync(statePath)) {
-    const state = readJson(statePath, 6, "state.json");
+    const state = readJsonOrFail(statePath, 6, "state.json");
     const currentTaskId = (parsed.meta["任务ID"] || "").trim() || null;
     const prevTaskId = state.taskId || null;
     if (currentTaskId && prevTaskId && currentTaskId !== prevTaskId) {
@@ -582,13 +505,15 @@ function runFeed(args) {
         already: true,
         repo: state.repo ?? null,
         repoDir: null,
-        branch: state.baseBranch ?? null,
+        branch: state.baseBranch ?? state.branch ?? null,
         branchSource: null,
         gate: state.gate ?? null,
+        planFile: state.planFile ?? null,
         reqDir,
         statePath,
         files: listFiles(reqDir),
         dryRun: args.dryRun,
+        elapsedMs: Date.now() - t0,
         actions: [],
       }),
     );
@@ -598,7 +523,7 @@ function runFeed(args) {
     fail(5, `目录已存在但缺少 state.json：${displayPath(reqDir)}（上次接入未完成，请人工删除该目录后重跑）`);
   }
 
-  validatePlan(parsed, args);
+  validatePlan(parsed);
 
   let cfg;
   try {
@@ -611,9 +536,11 @@ function runFeed(args) {
   }
 
   const resolved = resolveRepo(cfg, parsed.module, parsed.title);
-  const gate = checkGate(resolved.repoDir, resolved.branch);
+  const gate = gateOrFail(resolved.repoDir, resolved.branch);
+  const planFile = computePlanFile(parsed.alias, planAbs);
 
-  const planDisplay = displayPath(planAbs) + (parsed.alias.startsWith("R-oral-") ? "（口头流程为临时计划文件，done 时删除）" : "");
+  const planDisplay =
+    displayPath(planAbs) + (parsed.alias.startsWith("R-oral-") ? "（口头流程为临时计划文件，done 时删除）" : "");
   const context = contextMarkdown({
     alias: parsed.alias,
     title: parsed.title,
@@ -643,10 +570,12 @@ function runFeed(args) {
         branch: resolved.branch,
         branchSource: resolved.branchSource,
         gate,
+        planFile,
         reqDir,
         statePath,
         files: listFiles(TEMPLATE_DIR),
         dryRun: true,
+        elapsedMs: Date.now() - t0,
         actions,
       }),
     );
@@ -672,6 +601,7 @@ function runFeed(args) {
     repo: resolved.repo,
     branch: resolved.branch,
     gate,
+    planFile,
   });
 
   return emit(
@@ -683,88 +613,15 @@ function runFeed(args) {
       branch: resolved.branch,
       branchSource: resolved.branchSource,
       gate,
+      planFile,
       reqDir,
       statePath,
       files: listFiles(reqDir),
       dryRun: false,
+      elapsedMs: Date.now() - t0,
       actions,
     }),
   );
-}
-
-// ---------- --set-tier ----------
-
-function updateTasksTier(alias, tier) {
-  if (!fs.existsSync(TASKS_PATH)) {
-    fail(6, `tasks.md 不存在：${displayPath(TASKS_PATH)}`);
-  }
-  const lines = fs.readFileSync(TASKS_PATH, "utf8").split(/\r?\n/);
-  const idx = lines.findIndex(
-    (l) => l.startsWith("|") && l.split("|").map((s) => s.trim())[1] === alias,
-  );
-  if (idx < 0) fail(6, `tasks.md 中找不到 ${alias} 的行，请先重跑 feed`);
-  const cells = lines[idx].split("|");
-  // | 需求ID | 项目 | 优先级 | tier | 仓库 | 状态 | 入口 |
-  cells[4] = ` ${tier} `;
-  lines[idx] = cells.join("|");
-  fs.writeFileSync(TASKS_PATH, lines.join("\n"), "utf8");
-}
-
-function upsertDecision(reqDir, tier, reason) {
-  const p = path.join(reqDir, "decisions.md");
-  if (!fs.existsSync(p)) fail(6, `decisions.md 不存在：${displayPath(p)}`);
-  const lines = fs.readFileSync(p, "utf8").split(/\r?\n/);
-  const row = `| ${fmtLocal(new Date())} | tier=${tier} | pipeline-feed | ${cell(reason)} |`;
-  const idx = lines.findIndex(
-    (l) => l.startsWith("|") && l.split("|").map((s) => s.trim())[2]?.startsWith("tier="),
-  );
-  if (idx >= 0) {
-    lines[idx] = row;
-  } else {
-    let insertAt = lines.length;
-    while (insertAt > 0 && lines[insertAt - 1].trim() === "") insertAt -= 1;
-    lines.splice(insertAt, 0, row);
-  }
-  fs.writeFileSync(p, lines.join("\n"), "utf8");
-}
-
-function runSetTier(args) {
-  const alias = (args.setTier || "").trim();
-  if (!ALIAS_RE.test(alias)) {
-    fail(5, `别名不合法：${alias}（只允许 "R-" 后接字母、数字、连字符）`);
-  }
-  const tier = (args.tier || "").trim();
-  if (!["light", "full"].includes(tier)) fail(5, "--tier 必须是 light 或 full");
-  const reason = (args.reason || "").trim();
-  if (!reason) fail(5, "缺少 --reason（tier 判定理由）");
-
-  const reqDir = path.join(REQUIREMENTS_DIR, alias);
-  const statePath = path.join(reqDir, "state.json");
-  if (!fs.existsSync(statePath)) {
-    fail(5, `未接入：${displayPath(statePath)} 不存在，请先跑 feed`);
-  }
-  const state = readJson(statePath, 6, "state.json");
-  const phase = tier === "full" ? "planning" : "coding";
-
-  upsertDecision(reqDir, tier, reason);
-  updateTasksTier(alias, tier);
-
-  state.tier = tier;
-  state.phase = phase;
-  state.lastAgent = "orchestrator";
-  state.updatedAt = new Date().toISOString();
-  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-
-  const payload = {
-    ok: true,
-    alias,
-    tier,
-    phase,
-    tasksUpdated: true,
-    decisionsUpdated: true,
-  };
-  if (args.json) process.stdout.write(`${JSON.stringify(payload)}\n`);
-  else process.stdout.write(`feed: ${alias} tier=${tier} phase=${phase}\n`);
 }
 
 // ---------- 入口 ----------
@@ -775,8 +632,7 @@ function main() {
     process.stdout.write(USAGE);
     return;
   }
-  if (args.setTier) runSetTier(args);
-  else runFeed(args);
+  runFeed(args);
 }
 
 const wantsJson = process.argv.slice(2).includes("--json");

@@ -13,11 +13,18 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import { ROOT, reposRoot, section, stripNoise } from "./lib/febot.mjs";
-
-const INDEXER_DIR = path.join(ROOT, "code-indexer");
-const INDEXER_CLI = path.join(INDEXER_DIR, "bin", "cli.mjs");
+import {
+  ROOT,
+  ScriptError,
+  displayPath,
+  readConfig,
+  reposRoot,
+  splitKeywords,
+  stripNoise,
+  writeJsonAtomic,
+} from "./lib/febot.mjs";
+import { parseTasksRow, readRequirement } from "./lib/requirement.mjs";
+import { loadRepoMap } from "./lib/repo-index.mjs";
 
 const MAX_ENDPOINTS_PER_DOMAIN = 40;
 const SAMPLE_ROWS = 10;
@@ -35,33 +42,31 @@ const fail = msg => {
 const alias = process.argv[2];
 if (!alias) fail("usage: node scripts/recon.mjs <alias>  (e.g. R-371467)");
 
-const reqDir = path.join(ROOT, "docs", "requirements", alias);
-const contextPath = path.join(reqDir, "context.md");
-if (!fs.existsSync(contextPath)) fail(`context.md not found: ${contextPath}`);
-
-const context = fs.readFileSync(contextPath, "utf8");
-
-const reqTitle = section(context, "需求标题");
-const reqFull = section(context, "需求描述（全文）");
+let req;
+try {
+  req = readRequirement(alias);
+} catch (e) {
+  fail(e instanceof ScriptError ? e.message : String(e.message));
+}
+const reqDir = req.reqDir;
+const context = req.context;
+const reqTitle = req.title;
+const reqFull = req.description;
 
 // 第 5 列 = 仓库（repoRoot 下的仓库目录名）。
 // 2026-10-12 前这里存的是 worktree 名 `<仓名>-<别名>`，改用主仓工作区后已退化为裸仓名。
-const tasksPath = path.join(ROOT, "tasks.md");
-if (!fs.existsSync(tasksPath)) {
-  fail(`tasks.md 不存在：${tasksPath}（请先跑 yarn setup 生成，或从 example/tasks.md 复制一份）`);
+let repoName;
+try {
+  repoName = parseTasksRow(alias).repo;
+} catch (e) {
+  fail(e instanceof ScriptError ? e.message : String(e.message));
 }
-const tasksMd = fs.readFileSync(tasksPath, "utf8");
-const row = tasksMd
-  .split(/\r?\n/)
-  .find(l => l.startsWith("|") && l.split("|").map(s => s.trim())[1] === alias);
-if (!row) fail(`no row for ${alias} in tasks.md`);
-const repoName = row.split("|").map(s => s.trim())[5];
-if (!repoName || repoName === "-") fail(`empty repo column for ${alias} in tasks.md`);
+if (!repoName) fail(`empty repo column for ${alias} in tasks.md`);
 if (repoName.endsWith(`-${alias}`))
   fail(`repo column for ${alias} still holds a worktree name "${repoName}" — put the bare repo dir name instead`);
 let reposDir;
 try {
-  reposDir = reposRoot();
+  reposDir = reposRoot(readConfig());
 } catch (e) {
   fail(e.message);
 }
@@ -69,17 +74,14 @@ const repoRoot = path.join(reposDir, repoName);
 if (!fs.existsSync(repoRoot)) fail(`repo dir not found: ${repoRoot}`);
 const repoLabel = path.relative(ROOT, repoRoot).replace(/\\/g, "/") || repoName;
 
-// ---------- 扫描 ----------
+// ---------- 扫描（持久索引缓存；命中直接渲染） ----------
 
 let map;
 const t0 = Date.now();
+let indexMeta;
 try {
-  const out = execFileSync(process.execPath, [INDEXER_CLI, "scan", repoRoot, "--compact"], {
-    cwd: INDEXER_DIR,
-    encoding: "utf8",
-    maxBuffer: 128 * 1024 * 1024,
-  });
-  map = JSON.parse(out);
+  indexMeta = loadRepoMap(repoRoot);
+  map = indexMeta.map;
 } catch (e) {
   fail(`indexer scan failed: ${String(e.message).slice(0, 300)}`);
 }
@@ -188,24 +190,6 @@ function endpointFailReason() {
 }
 
 // ---------- §5 关键词候选命中 ----------
-
-const STOP_GRAMS = new Set([
-  "系统", "管理", "功能", "支持", "需要", "进行", "问题", "一个", "可以",
-  "相关", "内容", "查看", "显示", "默认", "页面", "模块", "需求", "要求",
-  "数据", "如下", "并且", "以及", "其他", "如果", "必须", "不能", "当前",
-]);
-
-function splitKeywords(text) {
-  const ascii = [...new Set([...text.matchAll(/[A-Za-z][A-Za-z0-9_-]{2,}/g)].map(m => m[0].toLowerCase()))];
-  const grams = [];
-  for (const run of text.match(/[一-鿿]+/g) ?? []) {
-    for (const n of [2, 3, 4]) {
-      for (let i = 0; i + n <= run.length; i++) grams.push(run.slice(i, i + n));
-    }
-  }
-  const cjk = [...new Set(grams.filter(g => !(g.length === 2 && STOP_GRAMS.has(g))))];
-  return { ascii, cjk, all: [...ascii, ...cjk] };
-}
 
 /** 与 src/query/search.ts 同语义：小写化后子串包含 */
 function findHits(words) {
@@ -373,6 +357,18 @@ for (const d of apiDomains) {
   for (const e of d.endpoints ?? []) epLines.push(`${e.file}\t${e.method}\t${e.url}\t${e.fn}`);
 }
 fs.writeFileSync(path.join(reqDir, "recon-endpoints.txt"), epLines.join("\n") + (epLines.length ? "\n" : ""));
+
+// 可选元数据：不影响 recon.md 格式，供 timings / 排障使用
+writeJsonAtomic(path.join(reqDir, "recon.meta.json"), {
+  requirement: alias,
+  repo: repoName,
+  head: indexMeta.head,
+  indexerVersion: indexMeta.indexerVersion,
+  cached: indexMeta.cached,
+  scannedAt: indexMeta.scannedAt,
+  elapsedMs: wallMs,
+  generatedAt: new Date().toISOString(),
+});
 
 process.stdout.write(
   `recon: ${alias} -> ${path.relative(ROOT, path.join(reqDir, "recon.md"))} （${verdict}；routes=${routes.length} modules=${modules.length} endpoints=${endpointTotal} hits=${keywordHits.length}）\n`,

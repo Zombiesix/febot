@@ -22,7 +22,8 @@ const FEBOT_ROOT = path.resolve(process.cwd(), "..");
 // 临时文件目录：计划文件、包装脚本、退出码、完成标记都放这里，读完即弃
 const TEMP_DIR = path.join(process.cwd(), "data", "temp");
 
-const POLL_MS = 30 * 1000;
+// 完成标记轮询间隔：marker 由 advance done 在收尾最后一刻写入，2s 足够且不再白等
+const POLL_MS = 2 * 1000;
 
 const running = new Map<string, ChildProcess>();
 // 启动中的占位：忙位检查与 await 之间不能留窗口，否则并发 POST 会弹两个窗口

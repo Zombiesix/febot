@@ -31,6 +31,9 @@
     "token": "",
     "appNames": {}
   },
+  "features": {
+    "hindsight": false
+  },
   "codeNameMap": {},
   "nextDevOrigins": []
 }

@@ -26,5 +26,8 @@ om/docs/
 __pycache__/
 .claude/settings.local.json
 
+# 仓索引缓存与 locate 临时数据（只写本地，不进仓库）
+/.febot/
+
 # 本仓库统一用 yarn v1，npm 生成的锁文件是残留
 package-lock.json
