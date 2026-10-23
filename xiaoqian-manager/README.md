@@ -38,7 +38,7 @@ yarn xiaoqian          # 等价于 yarn --cwd xiaoqian-manager dev
 | ② 规划         | 「计划」节点弹框整理/修改需求描述   | `components/task/StageSheet.tsx`（`plannedDescription`）          |
 | ③ 编码+审查+修复 | 「写代码」节点 ▶ → 拉起 `claude /pipeline` | 只传任务 ID + 临时计划 md，剧本在 `.claude/commands/pipeline.md`  |
 | ④ 提交合并     | deploy 阶段选仓库 + 目标分支点完成  | `lib/server/git/deploy.ts`（pull → commit → push → cherry-pick）  |
-| ⑤ 填写工时     | 工时入口                            | `lib/server/teamwork/client.ts` 的 `saveWorkHours`                |
+| ⑤ 填写工时     | 右上角「今日工时」                  | `components/timesheet/TimesheetEntry.tsx`（新标签页跳转协作平台工时页面） |
 
 > 流程图只有三个节点：计划 → 写代码 → 上传部署（对应总流程 ②③④）。「人工测试」不再单列；人工验收在主仓工作区自行进行。
 
