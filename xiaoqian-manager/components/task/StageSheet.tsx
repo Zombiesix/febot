@@ -21,7 +21,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { Stage, StageStatus, Task } from "@/lib/domain/schema";
-import type { GitOptions } from "@/lib/domain/git";
+import {
+  resolveBranchForRepo,
+  resolveGitDefault,
+  type GitOptions,
+} from "@/lib/domain/git";
 import { stageVisual } from "@/lib/domain/stage-visual";
 import { fmtDateTime } from "@/lib/ui/format";
 
@@ -59,8 +63,15 @@ export default function StageSheet({
   const [plannedDescription, setPlannedDescription] = useState(
     task?.plannedDescription ?? "",
   );
-  const [repo, setRepo] = useState("");
-  const [targetBranch, setTargetBranch] = useState("");
+  // 部署节点的仓库与目标分支按任务所属模块（项目数据）回填：
+  // projectMap 定仓，projectMap[].branch > branches.byRepo > branches.default 定分支。
+  const gitDefault = resolveGitDefault(
+    gitOptions,
+    task?.module ?? "",
+    task?.title ?? "",
+  );
+  const [repo, setRepo] = useState(gitDefault?.repo ?? "");
+  const [targetBranch, setTargetBranch] = useState(gitDefault?.branch ?? "");
   const [saving, setSaving] = useState(false);
 
   if (!sheet) return null;
@@ -175,7 +186,14 @@ export default function StageSheet({
             <>
               <div className="space-y-2">
                 <Label>代码仓库</Label>
-                <Select value={repo} onValueChange={setRepo}>
+                <Select
+                  value={repo}
+                  onValueChange={(val) => {
+                    // 基准分支是按仓库配置的，换仓库时目标分支跟着回填
+                    setRepo(val);
+                    setTargetBranch(resolveBranchForRepo(gitOptions, val));
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="选择仓库" />
                   </SelectTrigger>

@@ -4,7 +4,7 @@ import { readTasks } from "@/lib/server/store";
 import { readGitOptions } from "@/lib/server/git/config";
 import { readTeamworkConfig } from "@/lib/server/config/root";
 import type { Task } from "@/lib/domain/schema";
-import type { GitOptions } from "@/lib/domain/git";
+import { EMPTY_GIT_OPTIONS, type GitOptions } from "@/lib/domain/git";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export default function Home() {
   }
 
   // 配置缺失不影响任务列表渲染，部署时下拉框会是空的
-  let gitOptions: GitOptions = { repos: [], branches: [], jenkins: {} };
+  let gitOptions: GitOptions = EMPTY_GIT_OPTIONS;
   try {
     gitOptions = readGitOptions();
   } catch {

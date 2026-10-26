@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { GitOptions } from "@/lib/domain/git";
+import type { GitOptions, GitProjectEntry } from "@/lib/domain/git";
 import { readRootConfig, warnMissingConfig, type RootConfig } from "@/lib/server/config/root";
 
 // 部署节点可选的仓库与目标分支，来自 febot.config.json（不入库，见 .gitignore）。
@@ -19,7 +19,15 @@ interface GitConfig extends GitOptions {
   root: string;
 }
 
-const EMPTY_CONFIG: GitConfig = { root: "", repos: [], branches: [], jenkins: {} };
+const EMPTY_CONFIG: GitConfig = {
+  root: "",
+  repos: [],
+  branches: [],
+  jenkins: {},
+  projectMap: [],
+  defaultBranch: "",
+  branchByRepo: {},
+};
 
 let cached: GitConfig | null = null;
 
@@ -48,6 +56,43 @@ function branchesOf(value: unknown): { candidates: string[]; fallback: string } 
     return { candidates, fallback: fallback || candidates[0] || "" };
   }
   return { candidates: [], fallback: "" };
+}
+
+/** branches.byRepo：仓库名 -> 覆盖的基准分支（旧形状没有，返回空） */
+function branchByRepoOf(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const byRepo = (value as Record<string, unknown>).byRepo;
+  if (!byRepo || typeof byRepo !== "object" || Array.isArray(byRepo)) return {};
+  const out: Record<string, string> = {};
+  for (const [repo, branch] of Object.entries(byRepo)) {
+    const b = str(branch);
+    if (repo.trim() && b) out[repo.trim()] = b;
+  }
+  return out;
+}
+
+/** projectMap：产品/模块 → 目标仓库（缺 product 或 repo 的条目丢弃） */
+function projectMapOf(value: unknown): GitProjectEntry[] {
+  if (!Array.isArray(value)) return [];
+  const out: GitProjectEntry[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    const product = str(obj.product);
+    const repo = str(obj.repo);
+    if (!product || !repo) continue;
+    const keywords = Array.isArray(obj.keywords)
+      ? nonEmptyStrings(obj.keywords, [])
+      : [];
+    const branch = str(obj.branch);
+    out.push({
+      product,
+      repo,
+      ...(keywords.length ? { keywords } : {}),
+      ...(branch ? { branch } : {}),
+    });
+  }
+  return out;
 }
 
 /** jenkins 支持两种形状：完整 URL map（旧）或 { base, jobs }（新） */
@@ -83,11 +128,15 @@ function fromRootConfig(rc: RootConfig): GitConfig {
       ? repoRootRaw
       : path.resolve(rc.dir, repoRootRaw)
     : "";
+  const branches = branchesOf(rc.raw.branches);
   return {
     root,
     repos: nonEmptyStrings(rc.raw.repos, []),
-    branches: branchesOf(rc.raw.branches).candidates,
+    branches: branches.candidates,
     jenkins: jenkinsOf(rc.raw.jenkins),
+    projectMap: projectMapOf(rc.raw.projectMap),
+    defaultBranch: branches.fallback,
+    branchByRepo: branchByRepoOf(rc.raw.branches),
   };
 }
 
@@ -99,11 +148,16 @@ function fromLegacyFile(file: string): GitConfig {
     throw new Error(`配置文件不是合法 JSON：${file}`);
   }
   const obj = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const branches = branchesOf(obj.branches);
   return {
     root: str(obj.root),
     repos: nonEmptyStrings(obj.repos, []),
-    branches: branchesOf(obj.branches).candidates,
+    branches: branches.candidates,
     jenkins: jenkinsOf(obj.jenkins),
+    // 旧形状没有 projectMap / byRepo：默认值退回空
+    projectMap: projectMapOf(obj.projectMap),
+    defaultBranch: branches.fallback,
+    branchByRepo: branchByRepoOf(obj.branches),
   };
 }
 
@@ -140,8 +194,8 @@ function loadConfig(): GitConfig {
 }
 
 export function readGitOptions(): GitOptions {
-  const { repos, branches, jenkins } = loadConfig();
-  return { repos, branches, jenkins };
+  const { repos, branches, jenkins, projectMap, defaultBranch, branchByRepo } = loadConfig();
+  return { repos, branches, jenkins, projectMap, defaultBranch, branchByRepo };
 }
 
 // 仓库名必须来自配置白名单，且不含路径分隔符 —— 两道锁一起挡目录穿越。
