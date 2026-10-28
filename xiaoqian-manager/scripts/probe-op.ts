@@ -72,7 +72,9 @@ async function matrix(taskId: string) {
 const TASK_ID = process.argv[2] ?? "";
 const DEMAND_ID = process.argv[3] ?? "";
 if (!TASK_ID || !DEMAND_ID) {
-  console.error("usage: yarn tsx scripts/probe-op.ts <任务ID> <需求ID> [--matrix|--raw <mode>]");
+  console.error(
+    "usage: yarn tsx scripts/probe-op.ts <任务ID> <需求ID> [<description>] [--matrix|--raw <mode>]"
+  );
   process.exit(1);
 }
 
@@ -94,7 +96,7 @@ async function main() {
   }
   const before = await fetchRecord(DEMAND_ID);
   console.log(`BEFORE: ${before.length} records`);
-  await pushDevOperation(TASK_ID);
+  await pushDevOperation(TASK_ID, process.argv[4] ?? "<p>1</p>");
   console.log("pushDevOperation: OK");
   const after = await fetchRecord(DEMAND_ID);
   console.log(`AFTER: ${after.length} records`);

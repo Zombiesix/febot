@@ -308,23 +308,27 @@ export async function fetchRecord(demandId: string): Promise<TwRow[]> {
 // ---------- 开发人员操作（写平台） ----------
 
 // 更新阶段状态前，先调这个接口把操作写到协作平台，成功后才允许落本地 tasks.json。
-// 入参除 id（任务ID）外均为固定值，与浏览器实测请求一致：
+// operationAction / taskFj 是固定值，description 用研发人员在「计划」节点整理后的描述：
 //   POST /process/developmentPerson/operation
-//   {"id":"...","description":"<p>1</p>","operationAction":"js","taskFj":"[]"}
+//   {"id":"...","description":"<plannedDescription>","operationAction":"js","taskFj":"[]"}
 // 注意原始请求里 description 出现两次（"" 与 "<p>1</p>"），JSON 解析取后者。
-export async function pushDevOperation(taskId: string): Promise<void> {
+export async function pushDevOperation(
+  taskId: string,
+  plannedDescription: string
+): Promise<void> {
   const cookie = await ensureCookie();
-  return postOperation(taskId, cookie, true);
+  return postOperation(taskId, plannedDescription, cookie, true);
 }
 
 async function postOperation(
   taskId: string,
+  description: string,
   cookie: string,
   retry: boolean
 ): Promise<void> {
   const body = JSON.stringify({
     id: taskId,
-    description: "<p>1</p>",
+    description,
     operationAction: "js",
     taskFj: "[]",
   });
@@ -350,7 +354,7 @@ async function postOperation(
   if (retry && loginExpired) {
     clearCookie();
     const fresh = await reLogin();
-    return postOperation(taskId, fresh, false);
+    return postOperation(taskId, description, fresh, false);
   }
   if (json.success !== true) {
     throw new Error(`协作平台 operation 失败：${json.msg || "未知原因"}`);

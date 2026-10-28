@@ -87,7 +87,7 @@ export async function PATCH(
       console.log(`[stage] ${id} 步骤1/3 提交/推送/cherry-pick 完成`, gitResult);
       // 先写协作平台；失败（含登录失效）则中断，不落本地 tasks.json
       console.log(`[stage] ${id} 步骤2/3 回写协作平台 开始`);
-      await pushDevOperation(id);
+      await pushDevOperation(id, existing.plannedDescription);
       console.log(`[stage] ${id} 步骤2/3 回写协作平台 完成`);
     }
     const now = new Date().toISOString();
