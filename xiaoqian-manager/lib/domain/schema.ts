@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+// 流水线会话（run）相关类型：PipelineRun / RunStatus / TimelineEvent / DiffFile
+export * from "./run";
+
 // 固定三节点：planner 计划 -> coder 写代码 -> 上传部署（对应总流程 ②③④）
 // key 保留用户原文 "planer"
 export const STAGE_KEYS = ["planer", "coder", "deploy"] as const;

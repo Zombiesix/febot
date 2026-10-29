@@ -18,11 +18,25 @@
 **主对话动作序**：
 
 1. `state.json` 不存在 → 走「init」接入（feed 已做开工门禁）。
-2. 已存在 → `node scripts/advance.mjs status <别名>`，用返回的 `next` 决定阶段；`branchOk:false` / HEAD 异常才停下问负责人（**恢复流程不跑 `gate`**）。
+2. 已存在 → `node scripts/advance.mjs status <别名>`，用返回的 `next` 决定阶段；`branchOk:false` / HEAD 异常才停下问负责人（**恢复流程不跑 `gate`**）。停下前写 `wait --name resume_branch --status waiting --message-file <说明>`，负责人处理后补 `--status done`。
 3. 需要细节再读 `orchestrator-log.md` 末尾 80 行与 `status.progressTail`。
 4. 套用下方阶段模板，**只传路径，只收摘要**。
 
 **输出纪律**：每阶段可见回复只 3 行——`阶段` / `一行摘要` / `下一步`。blocker、问题、人工拍板点完整保留，但不复述 subagent 报告、不粘贴文件全文。resume 所需的「下一步 + 已知信息」写进 `--note-file`。
+
+**人工等待点（`needs_input` 的唯一来源）**
+
+xiaoqian-manager 的注意力路由只认剧本显式声明的人工等待，禁止靠输出空闲/关键词猜测。凡是要停下来等人拍板的地方，**先写 waiting、人处理完再写 done**：
+
+```bash
+node scripts/advance.mjs wait <别名> --name <ASCII标识> --status waiting [--message-file <说明.md>]
+node scripts/advance.mjs wait <别名> --name <ASCII标识> --status done [--by <ASCII>]
+```
+
+- 事件由 advance 统一代写（runner 经 `XQ_EVENTS_FILE` 注入落点，缺省回退 `xiaoqian-manager/data/runs/<taskId>.events.jsonl`）。
+- 命令行只放 ASCII；中文说明写文件走 `--message-file`，`--by` 用 ASCII 标识。
+- 已有 `waiting` 未 `done` 时不要重复写 waiting；恢复流程若发现仍是 waiting，直接补 `done` 后继续。
+- 固定标识：`plan_confirm`、`locate_failed`、`express_confirm`、`conditional`、`resume_branch`、`round_limit`、`fail_safe`。
 
 ## 各阶段动作
 
@@ -123,12 +137,12 @@ node scripts/feed.mjs --plan <计划文件> --json
 node scripts/locate.mjs <别名> --json
 ```
 
-产物：`locate.md` / `locate.json` / `selected-files.json`。失败 → **停下来问负责人**（重跑，或由负责人决定 `advance set-tier --tier full --reason-file <说明>`），不得猜成 express。
+产物：`locate.md` / `locate.json` / `selected-files.json`。失败 → **停下来问负责人**（重跑，或由负责人决定 `advance set-tier --tier full --reason-file <说明>`），不得猜成 express。停下来前后各写一次 `wait --name locate_failed`（`--status waiting` → 处理后 `--status done`）。
 跑完后 `advance timing <别名> --name locate --machine-ms <locate.elapsedMs>`。
 
 分流：
 
-- `confidence=high` 且 `recommendedTier=express` → 展示 `locate.md` 候选表，用 `AskUserQuestion` 给三个选项：
+- `confidence=high` 且 `recommendedTier=express` → 展示 `locate.md` 候选表，用 `AskUserQuestion` 给三个选项（提问前 `wait --name express_confirm --status waiting`，选定后补 `--status done`）：
   1. **按此清单改（express）** → `advance set-tier --tier express`；
   2. **调整文件后 express** → 负责人编辑 `docs/requirements/<别名>/selected-files.json`，再执行同一命令；
   3. **走全轨（full）** → `advance set-tier --tier full --reason-file <确认说明>`。
@@ -165,6 +179,14 @@ planner 返回后 `advance set-phase <别名> --phase plan_confirm --agent plann
 
 ### plan_confirm → 主对话 + 负责人
 
+进入本阶段先写等待点，负责人处理完再落 `done`：
+
+```bash
+node scripts/advance.mjs wait <别名> --name plan_confirm --status waiting --message-file <计划评审说明.md>
+# …读 questions.md 展示 → 负责人答 answers.md（按编号）→ 确认拍板写 decisions.md…
+node scripts/advance.mjs wait <别名> --name plan_confirm --status done --by <ASCII>
+```
+
 读 `questions.md` 展示 → 负责人答 `answers.md`（按编号）→ 确认拍板写 `decisions.md`（时间/决策/拍板人/原因）。
 
 逐个处理 `plan.files.json.conditional`：
@@ -172,6 +194,8 @@ planner 返回后 `advance set-phase <别名> --phase plan_confirm --agent plann
 - 同意 → `advance approve-files <别名> --q Q1`（移入 `files`）；
 - 不同意 → `advance approve-files <别名> --q Q1 --reject`（移除并记录）；
 - 暂不决定且允许 coder 不碰 → 最后加 `--allow-conditional`。
+
+需要负责人逐个拍板时，先 `wait --name conditional --status waiting`，全部处理完补 `--status done`。
 
 然后 `advance set-phase <别名> --phase coding --agent orchestrator`。还有未处理 conditional 且没加 `--allow-conditional` → exit 5；`plan.files.json` 缺失 → 永远 exit 5（`--allow-conditional` 不放宽文件缺失）。
 
@@ -250,7 +274,7 @@ blocker 清空后，把**本轮 blocker 根因**回流入库（仅 `features.hin
 
 **「全绿」= lint + test 全过**（build 不计入复验门禁）。不全绿：
 
-- express → `advance set-phase --phase coding --agent coder`（脚本自动计轮，最多 2 轮；到上限 exit 5 → 停下问负责人）；
+- express → `advance set-phase --phase coding --agent coder`（脚本自动计轮，最多 2 轮；到上限 exit 5 → 写 `wait --name round_limit --status waiting` 后停下问负责人，处理好补 `--status done`）；
 - full → `advance set-phase --phase fixing --inc-iteration --agent coder`（有 review 修复）或 `--phase coding`。
 
 全绿 → `advance done <别名>`。build 仅按需补跑，跑完把 `auto-imports.d.ts` / `components.d.ts` 这类自动生成文件的改动还原，别污染收尾校验。
@@ -288,7 +312,7 @@ py -3 scripts/hindsight-memo.py recall --bank li-expertise --query "<本需求�
 
 ## 轨道约束
 
-- fail-safe：任何阶段拿不到预期产物 → 写 orchestrator-log 并停下来问负责人，不硬猜继续。
+- fail-safe：任何阶段拿不到预期产物 → 写 orchestrator-log、写 `wait --name fail_safe --status waiting --message-file <说明>`，停下来问负责人，不硬猜继续；恢复后补 `--status done`。
 - orchestrator 每次收到 subagent 摘要后，把「下一步 + 已知信息」写 `orchestrator-log.md` 再丢弃对话。
 - **全局约束（对流水线主对话与所有 subagent 生效）**：
   1. **禁止更改 node / npm / yarn 版本**——不执行任何 `nvm use`、`node -v` 引发的变更、`npm`/`yarn`/`pnpm` 全局切换或 `engines`/`.nvmrc`/package.json 里的版本改动。版本锁定为现状。

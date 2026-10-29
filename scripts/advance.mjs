@@ -72,6 +72,10 @@ const VALUE_FLAGS = new Set([
   "--plan-file",
   "--max-bytes",
   "--max-file-bytes",
+  "--status",
+  "--by",
+  "--message",
+  "--message-file",
 ]);
 
 const BOOL_FLAGS = new Set([
@@ -163,6 +167,36 @@ function cell(value) {
 
 function transitionKey(...parts) {
   return crypto.createHash("sha1").update(parts.join("|")).digest("hex").slice(0, 12);
+}
+
+// ---------- 结构化事件（XQ_EVENTS_FILE） ----------
+//
+// xiaoqian-manager 的 runner 起 PTY 时注入 XQ_EVENTS_FILE（绝对路径），
+// 所有 stage / step / wait / file / done 事件都由本脚本单点代写，
+// 主对话与 subagent 不直接拼事件 —— 契约只在这里维护。
+// 事件写入失败绝不阻塞流水线（try/catch 吞掉）。
+
+function eventsPathFor(state) {
+  const fromEnv = process.env.XQ_EVENTS_FILE;
+  if (fromEnv && fromEnv.trim()) return path.resolve(fromEnv.trim());
+  // 与 markerDir() 同约定：回退到 xiaoqian-manager/data/runs/<taskId>.events.jsonl
+  const taskId = state?.taskId ? safeTaskId(state.taskId) : null;
+  if (!taskId) return null;
+  return path.join(ROOT, "xiaoqian-manager", "data", "runs", `${taskId}.events.jsonl`);
+}
+
+function appendEvent(state, event) {
+  try {
+    const file = eventsPathFor(state);
+    if (!file) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = JSON.stringify({ v: 1, ts: nowIso(), ...event });
+    // 单事件建议 < 1KB：超限丢弃，避免把日志撑大
+    if (line.length > 1024) return;
+    fs.appendFileSync(file, `${line}\n`, "utf8");
+  } catch {
+    // 事件通道是旁路，失败不影响 state / 门禁
+  }
 }
 
 // ---------- state 辅助 ----------
@@ -609,6 +643,12 @@ function runSetPhase(alias, flags) {
     if (w) warnings.push(w);
   }
 
+  // 阶段切换事件：离开旧阶段 + 进入新阶段（幂等/dry-run 不写）
+  if (!already && current !== target) {
+    appendEvent(state, { type: "stage", stage: current, status: "done" });
+    appendEvent(state, { type: "stage", stage: target, status: "start" });
+  }
+
   return { ...payload, iterationNote, warnings };
 }
 
@@ -744,6 +784,13 @@ function runSetTier(alias, flags) {
     (loc ? "" : " locate.missing");
   const w = appendLog(reqDir, key, logMsg);
   if (w) payload.warnings = [...(payload.warnings ?? []), w];
+
+  appendEvent(state, {
+    type: "step",
+    name: "set_tier",
+    status: "done",
+    message: `${tier}${expressFiles ? ` files=${expressFiles.length}` : ""}`,
+  });
 
   return { ...payload, tasksUpdated, decisionsUpdated: true };
 }
@@ -916,6 +963,12 @@ function computeCheck(alias, flags, opts = {}) {
 function runCheck(alias, flags) {
   const result = computeCheck(alias, flags);
   if (flags["dry-run"]) return { ...result, dryRun: true };
+  appendEvent(loadState(alias).state, {
+    type: "step",
+    name: "check",
+    status: result.ok ? "done" : "failed",
+    message: result.ok ? "" : result.problems.join("；").slice(0, 300),
+  });
   return result;
 }
 
@@ -1045,6 +1098,15 @@ function runReviewInput(alias, flags) {
   const text = sections.join("");
   if (!flags["dry-run"]) writeTextAtomic(outPath, text);
 
+  if (!flags["dry-run"]) {
+    appendEvent(state, {
+      type: "step",
+      name: "review-input",
+      status: "done",
+      message: `head=${head.slice(0, 12)}`,
+    });
+  }
+
   return {
     ok: true,
     alias,
@@ -1066,7 +1128,7 @@ function runReviewInput(alias, flags) {
 function runApproveFiles(alias, flags) {
   const q = (flags.q || "").trim();
   if (!q) throw new ScriptError(5, "缺少 --q Q1");
-  const { reqDir } = loadState(alias);
+  const { reqDir, state } = loadState(alias);
   const planFiles = path.join(reqDir, "plan.files.json");
   if (!fs.existsSync(planFiles)) {
     throw new ScriptError(5, "plan.files.json 不存在：approve-files 只处理 planner 产出的白名单", {
@@ -1127,6 +1189,11 @@ function runApproveFiles(alias, flags) {
     transitionKey(alias, "approve-files", q, String(reject)),
     `approve-files ${q} ${reject ? "reject" : "approve"} -> ${moved.join(", ")}`,
   );
+  appendEvent(state, {
+    type: "notice",
+    name: `conditional:${q}`,
+    message: `${reject ? "reject" : "approve"} ${moved.join(", ")}`.slice(0, 300),
+  });
   return payload;
 }
 
@@ -1143,7 +1210,7 @@ function runTiming(alias, flags) {
   if ((machineMs !== null && !Number.isFinite(machineMs)) || (waitMs !== null && !Number.isFinite(waitMs))) {
     throw new ScriptError(5, "--machine-ms / --wait-ms 必须是数字");
   }
-  const { reqDir } = loadState(alias);
+  const { reqDir, state } = loadState(alias);
   const add = Boolean(flags.add);
 
   const payload = { ok: true, alias, name, add, machineMs: null, waitMs: null };
@@ -1159,6 +1226,59 @@ function runTiming(alias, flags) {
       t.waitMs[name] = add ? (t.waitMs[name] ?? 0) + waitMs : waitMs;
       payload.waitMs = t.waitMs[name];
     }
+  });
+
+  appendEvent(state, {
+    type: "step",
+    name: `timing:${name}`,
+    status: "done",
+    message:
+      machineMs !== null
+        ? `machine=${payload.machineMs}ms`
+        : `wait=${payload.waitMs}ms`,
+  });
+  return payload;
+}
+
+// ---------- wait（人工等待点） ----------
+
+/**
+ * 显式声明人工等待点：waiting = 需要人决策；done = 人已处理。
+ * needs_input 只由这里驱动，禁止用输出空闲 / 关键词猜测。
+ */
+function runWait(alias, flags) {
+  if (!alias || !ALIAS_RE.test(alias)) {
+    throw new ScriptError(5, `别名不合法：${alias ?? "（空）"}`);
+  }
+  const name = String(flags.name || "").trim();
+  if (!name) throw new ScriptError(5, "缺少 --name <等待点>");
+  const status = String(flags.status || "waiting").trim();
+  if (status !== "waiting" && status !== "done") {
+    throw new ScriptError(5, `--status 只允许 waiting | done（当前 ${status}）`);
+  }
+  if (flags.by) assertAscii(flags.by, "--by");
+  if (flags.message) assertAscii(flags.message, "--message");
+  const message = flags["message-file"]
+    ? readFlagFile(flags, "message-file").trim()
+    : (flags.message ?? "").trim();
+
+  // 不依赖 state.json：feed 之前 / state 损坏时的等待点也要能发出去。
+  // 事件落点优先用 runner 注入的 XQ_EVENTS_FILE，state 只用于缺省回退路径。
+  let state = null;
+  try {
+    state = readState(requirementPaths(alias).reqDir);
+  } catch {
+    state = null;
+  }
+  const payload = { ok: true, alias, name, status, by: flags.by ?? null };
+  if (flags["dry-run"]) return { ...payload, dryRun: true };
+
+  appendEvent(state, {
+    type: "wait",
+    name,
+    status,
+    ...(flags.by ? { by: flags.by } : {}),
+    ...(message ? { message } : {}),
   });
   return payload;
 }
@@ -1326,6 +1446,14 @@ function runDone(alias, flags) {
     actions.push({ action: "write-marker", file: displayPath(markerPath) });
   }
 
+  // 7) 事件流：文件清单 + done（只在真正收口这一轮写；幂等重跑前面已 return）
+  if (check && Array.isArray(check.changed)) {
+    for (const p of check.changed) {
+      appendEvent(state, { type: "file", path: toPosix(p), action: "edit" });
+    }
+  }
+  appendEvent(state, { type: "done", message: `taskId=${taskId ?? "-"}` });
+
   return {
     ok: true,
     alias,
@@ -1342,7 +1470,7 @@ function runDone(alias, flags) {
 // ---------- 入口 ----------
 
 const USAGE = `用法: node scripts/advance.mjs <子命令> <别名> [参数]
-子命令: status | gate | set-phase | set-tier | check | review-input | approve-files | timing | done
+子命令: status | gate | set-phase | set-tier | check | review-input | approve-files | timing | wait | done
 退出码: 0 成功/幂等, 1 异常, 3 门禁, 5 参数/契约, 6 配置/state/marker
 `;
 
@@ -1378,6 +1506,8 @@ function main() {
       return emit(runApproveFiles(alias, flags));
     case "timing":
       return emit(runTiming(alias, flags));
+    case "wait":
+      return emit(runWait(alias, flags));
     case "done": {
       const result = runDone(alias, flags);
       emit(result);

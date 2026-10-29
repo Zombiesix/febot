@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "om": "node om/server.js",
     "xiaoqian": "yarn --cwd xiaoqian-manager dev",
+    "runner": "yarn --cwd xiaoqian-manager runner",
     "recon": "node scripts/recon.mjs",
     "locate": "node scripts/locate.mjs",
     "advance": "node scripts/advance.mjs",

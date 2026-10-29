@@ -20,6 +20,27 @@ yarn xiaoqian          # 等价于 yarn --cwd xiaoqian-manager dev
 
 端口 **3010**（om 看板占 3000，两者可同时跑）。打开 http://localhost:3010。
 
+### 流水线 runner（独立进程）
+
+「写代码」节点的会话跑在 **runner** 里，它和 `yarn dev` **解耦**：Next 重启不影响正在跑的 PTY，runner 重启会无法热恢复（启动时把非终态的 run 置为 failed）。
+
+```bash
+yarn runner            # 等价于 yarn --cwd xiaoqian-manager runner，默认监听 127.0.0.1:3011
+```
+
+先起 runner 再用页面启动流水线；runner 不在线时任务列表会提示，启动接口返回 503。
+
+runner 启动时在 `xiaoqian-manager/data/runner.json` 写入 `{pid,port,httpUrl,wsUrl,token}`，Next 与浏览器都从这里发现它（token 用于 WS 与内部回调鉴权）。
+
+| 环境变量 | 默认值 | 说明 |
+| -------- | ------ | ---- |
+| `XQ_RUNNER_PORT` | `3011` | runner HTTP/WS 端口 |
+| `XQ_RUNNER_TOKEN` | 随机 | 固定 token（多端调试时可指定） |
+| `XQ_APP_URL` | `http://127.0.0.1:3010` | 收口/轨迹回调的 Next 地址 |
+| `XQ_RUN_TIMEOUT_MS` | 6 小时 | 单次会话超时 |
+
+健康检查：`curl http://127.0.0.1:3011/healthz`。
+
 ## 它读哪些本地配置
 
 | 文件                          | 用途                                                             |
@@ -36,7 +57,7 @@ yarn xiaoqian          # 等价于 yarn --cwd xiaoqian-manager dev
 | -------------- | ----------------------------------- | ----------------------------------------------------------------- |
 | ① 获取需求     | 右上角「同步」                      | `lib/server/teamwork/client.ts`（`fetchList`）+ `mapper.ts`       |
 | ② 规划         | 「计划」节点弹框整理/修改需求描述   | `components/task/StageSheet.tsx`（`plannedDescription`）          |
-| ③ 编码+审查+修复 | 「写代码」节点 ▶ → 拉起 `claude /pipeline` | 只传任务 ID + 临时计划 md，剧本在 `.claude/commands/pipeline.md`  |
+| ③ 编码+审查+修复 | 「写代码」节点 ▶ → 在 runner 的 PTY 里跑 `claude /pipeline`，跳到 `/runs/<任务ID>` 会话页 | 前端 `components/pipeline/`；runner `scripts/runner.ts` + `lib/runner/`；剧本 `.claude/commands/pipeline.md` |
 | ④ 提交合并     | deploy 阶段选仓库 + 目标分支点完成  | `lib/server/git/deploy.ts`（pull → commit → push → cherry-pick）  |
 | ⑤ 填写工时     | 右上角「今日工时」                  | `components/timesheet/TimesheetEntry.tsx`（新标签页跳转协作平台工时页面） |
 

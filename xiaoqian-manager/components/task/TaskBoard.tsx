@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Inbox } from "lucide-react";
+import { Search, Inbox, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Accordion } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,13 @@ import {
 } from "@/components/ui/select";
 import type { Stage, Task } from "@/lib/domain/schema";
 import type { GitOptions } from "@/lib/domain/git";
+import type { PipelineRun } from "@/lib/domain/run";
+import {
+  ATTENTION_WEIGHT,
+  NO_RUN_WEIGHT,
+  requestNotificationPermission,
+  useRuns,
+} from "@/components/pipeline/useRuns";
 import TaskRow from "./TaskRow";
 import StageSheet from "./StageSheet";
 
@@ -41,46 +48,65 @@ export default function TaskBoard({
     [initialTasks]
   );
 
+  const { online, runs, byTask, refresh } = useRuns();
+
+  // 注意力排序：needs_input > failed > running > 其他有 run > 无 run
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return initialTasks.filter((t) => {
-      if (moduleFilter !== "all" && t.module !== moduleFilter) return false;
-      if (q && !`${t.title} ${t.id} ${t.module}`.toLowerCase().includes(q))
-        return false;
-      return true;
-    });
-  }, [initialTasks, query, moduleFilter]);
+    const weightOf = (t: Task): number => {
+      const run = byTask[t.id];
+      return run ? ATTENTION_WEIGHT[run.status] : NO_RUN_WEIGHT;
+    };
+    return initialTasks
+      .filter((t) => {
+        if (moduleFilter !== "all" && t.module !== moduleFilter) return false;
+        if (q && !`${t.title} ${t.id} ${t.module}`.toLowerCase().includes(q))
+          return false;
+        return true;
+      })
+      .sort((a, b) => weightOf(a) - weightOf(b));
+  }, [initialTasks, query, moduleFilter, byTask]);
 
-  const hasActivePipeline = initialTasks.some((t) =>
-    t.stages.some((s) => s.key === "coder" && s.status === "active")
+  const hasLiveRun = runs.some(
+    (r) => r.status === "starting" || r.status === "running" || r.status === "needs_input" || r.status === "settling"
   );
+  const pendingReview = runs.filter((r) => r.status === "needs_input").length;
 
   // 弹框始终取当前任务列表里的最新快照，避免 router.refresh() 后表单还是旧值
   const sheetTask = sheet
     ? (initialTasks.find((t) => t.id === sheet.taskId) ?? null)
     : null;
 
-  // 流水线在独立终端窗口里跑，结束后由服务端自动置 done —— 轮询刷新让页面看到结果
+  // run 收口时由 runner 回调服务端写任务轨迹；这里轮询让页面看到结果
   useEffect(() => {
-    if (!hasActivePipeline) return;
-    const timer = setInterval(() => router.refresh(), 15000);
+    if (!hasLiveRun) return;
+    const timer = setInterval(() => router.refresh(), 10000);
     return () => clearInterval(timer);
-  }, [hasActivePipeline, router]);
+  }, [hasLiveRun, router]);
 
   const startPipeline = async (taskId: string) => {
+    // 通知权限需要用户手势；启动按钮正好是手势上下文
+    requestNotificationPermission();
     try {
       const res = await fetch(`/api/tasks/${taskId}/pipeline`, {
         method: "POST",
       });
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
+        details?: string;
+        run?: PipelineRun;
       };
       if (!res.ok) {
-        toast.error(json.error || "启动流水线失败");
+        toast.error(json.error || "启动流水线失败", {
+          description: json.details,
+        });
         return;
       }
-      toast.success("流水线已启动，请在弹出的终端窗口里回车开始");
-      router.refresh();
+      const runId = json.run?.id;
+      toast.success("流水线已启动");
+      refresh();
+      if (runId) router.push(`/runs/${encodeURIComponent(runId)}`);
+      else router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "启动流水线失败");
     }
@@ -111,10 +137,23 @@ export default function TaskBoard({
             ))}
           </SelectContent>
         </Select>
+        {pendingReview > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-600/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+            {pendingReview} 个会话待你处理
+          </span>
+        )}
         <span className="ml-auto text-sm text-muted-foreground">
           共 {filtered.length} 个任务
         </span>
       </div>
+
+      {!online && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-600/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <WifiOff className="h-3.5 w-3.5" />
+          runner 未启动，流水线功能不可用。请在项目目录执行 <code className="font-mono">yarn runner</code>。
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -144,8 +183,10 @@ export default function TaskBoard({
             <TaskRow
               key={t.id}
               task={t}
+              run={byTask[t.id]}
               onOpenStage={(stage) => setSheet({ taskId: t.id, stage })}
               onStartPipeline={startPipeline}
+              onOpenRun={(runId) => router.push(`/runs/${encodeURIComponent(runId)}`)}
             />
           ))}
         </Accordion>

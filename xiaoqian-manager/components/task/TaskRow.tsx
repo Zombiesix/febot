@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, TerminalSquare } from "lucide-react";
 import {
   AccordionContent,
   AccordionItem,
@@ -11,8 +11,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { Stage, Task } from "@/lib/domain/schema";
+import type { PipelineRun } from "@/lib/domain/run";
+import { RunStatusBadge } from "@/components/pipeline/run-status";
 import TaskMeta from "./TaskMeta";
 import TaskTabs from "./TaskTabs";
+
+const LIVE_STATUSES = ["starting", "running", "needs_input", "settling"];
 
 const TaskFlow = dynamic(() => import("@/components/flow/TaskFlow"), {
   ssr: false,
@@ -34,19 +38,25 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function TaskRow({
   task,
+  run,
   onOpenStage,
   onStartPipeline,
+  onOpenRun,
 }: {
   task: Task;
+  run?: PipelineRun;
   onOpenStage: (stage: Stage) => void;
   onStartPipeline: (taskId: string) => void;
+  onOpenRun?: (runId: string) => void;
 }) {
   const doneCount = task.stages.filter((s) => s.status === "done").length;
   const stageTotal = task.stages.length;
   const progress = stageTotal ? (doneCount / stageTotal) * 100 : 0;
   const [copied, setCopied] = useState(false);
   // 计划描述为空时，服务端会 422；前端直接禁用 ▶，别让用户白点。
-  const startDisabled = !task.plannedDescription.trim();
+  // 同一仓库已有 live run 时也禁用：runner 是拒绝模型，不会排队。
+  const liveRun = run && LIVE_STATUSES.includes(run.status);
+  const startDisabled = !task.plannedDescription.trim() || Boolean(liveRun);
 
   const copyTitle = async () => {
     try {
@@ -80,6 +90,7 @@ export default function TaskRow({
             <div className="flex items-center gap-2">
               <span className="truncate font-medium">{task.title}</span>
               <StatusBadge status={task.twStatus} />
+              {run && <RunStatusBadge status={run.status} />}
               <span
                 title="复制标题"
                 className="shrink-0 cursor-pointer text-muted-foreground/70 hover:text-foreground"
@@ -99,6 +110,19 @@ export default function TaskRow({
               {task.module}
               {task.assignee ? ` · ${task.assignee}` : ""}
               {task.customerName ? ` · ${task.customerName}` : ""}
+              {run && onOpenRun && (
+                <span
+                  className="ml-2 inline-flex cursor-pointer items-center gap-0.5 text-primary hover:underline"
+                  title="打开流水线会话"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenRun(run.id);
+                  }}
+                >
+                  <TerminalSquare className="h-3 w-3" />
+                  打开会话
+                </span>
+              )}
             </div>
           </div>
           <div className="hidden w-40 shrink-0 items-center gap-2 sm:flex">
