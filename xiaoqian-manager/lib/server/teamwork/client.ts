@@ -9,6 +9,7 @@ import { readCredentials } from "./credentials";
 const TW_LOGIN_PATH = "/teamworkapi/user/login";
 const TW_LIST = "/teamworkapi/tableReader/getTableData";
 const TW_DETAIL = "/teamworkapi/api/query/task/getById";
+const TW_BY_DEMAND = "/teamworkapi/api/query/task/getByDemand";
 const TW_RECORD = "/teamworkapi/api/query/question/getRecord";
 const TW_OPERATION = "/process/developmentPerson/operation";
 const TW_SAVE_WORKHOURS = "/process/workHours/saveBatch";
@@ -295,6 +296,21 @@ export async function fetchDetail(taskId: string): Promise<TwRow | null> {
   if (!json || json.result !== "SUCCESS") return null;
   const rows = ((json.map as { rows?: TwRow[] }) || {}).rows || [];
   return rows[0] || null;
+}
+
+// 任务处理人：实测入参 id 必须是需求 id（demand_id）——传任务 id 会返回 0 行。
+// 返回该需求下的所有任务行，每行带 username / max_hour / status 等处理人字段；
+// 调用方按行 id（任务 id）过滤出当前任务。列表接口不带这些明细，只能逐任务补拉。
+export async function fetchDemandTasks(demandId: string): Promise<TwRow[]> {
+  if (!demandId) return [];
+  const cookie = await ensureCookie();
+  const json = await post(
+    TW_BY_DEMAND,
+    `id=${encodeURIComponent(demandId)}&pageSize=1000`,
+    cookie
+  );
+  if (!json || json.result !== "SUCCESS") return [];
+  return ((json.map as { rows?: TwRow[] }) || {}).rows || [];
 }
 
 export async function fetchRecord(demandId: string): Promise<TwRow[]> {

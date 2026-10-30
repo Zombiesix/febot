@@ -19,6 +19,9 @@ export default function TaskTabs({ task }: { task: Task }) {
         <TabsTrigger value="att">
           附件{task.attachments.length ? `（${task.attachments.length}）` : ""}
         </TabsTrigger>
+        <TabsTrigger value="handlers">
+          处理人{task.handlers.length ? `（${task.handlers.length}）` : ""}
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="desc">
         {refined && (
@@ -83,6 +86,36 @@ export default function TaskTabs({ task }: { task: Task }) {
         ) : (
           <p className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
             （无附件）
+          </p>
+        )}
+      </TabsContent>
+      <TabsContent value="handlers">
+        {task.handlers.length ? (
+          <div className="max-h-72 overflow-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">开发人</th>
+                  <th className="px-3 py-2 font-medium">最大工时</th>
+                  <th className="px-3 py-2 font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {task.handlers.map((h, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="px-3 py-2">{h.username || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">
+                      {h.maxHour ?? "-"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">{h.status || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+            （无处理人，重新同步任务后可见）
           </p>
         )}
       </TabsContent>

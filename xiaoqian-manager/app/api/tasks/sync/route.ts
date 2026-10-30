@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { Task } from "@/lib/domain/schema";
 import { mergeTasks } from "@/lib/server/store";
 import {
+  fetchDemandTasks,
   fetchDetail,
   fetchList,
   fetchRecord,
@@ -49,11 +50,13 @@ export async function POST(req: Request) {
       const id = String(row.id ?? "").trim();
       try {
         if (!id) throw new Error("该行没有 id 字段");
-        const [detail, traj] = await Promise.all([
+        const demandId = String(row.demand_id ?? "");
+        const [detail, traj, demandTasks] = await Promise.all([
           fetchDetail(id),
-          fetchRecord(String(row.demand_id ?? "")),
+          fetchRecord(demandId),
+          fetchDemandTasks(demandId),
         ]);
-        tasks.push(rowToTask(row, detail, traj));
+        tasks.push(rowToTask(row, detail, traj, demandTasks));
       } catch (e) {
         failed++;
         errors.push(`${id}: ${e instanceof Error ? e.message : "unknown"}`);

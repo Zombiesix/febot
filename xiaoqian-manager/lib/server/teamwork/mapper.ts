@@ -1,9 +1,14 @@
-import { createStages, type Task, type TrajectoryItem } from "@/lib/domain/schema";
+import {
+  createStages,
+  type Task,
+  type TaskHandler,
+  type TrajectoryItem,
+} from "@/lib/domain/schema";
 import type { TwRow } from "./client";
 
 // teamwork 行数据 -> 本项目 Task。白名单挑字段，从源头杜绝凭证泄漏。
 
-const STATUS_TEXT: Record<string, string> = { "1": "待处理", "2": "处理中" };
+const STATUS_TEXT: Record<string, string> = { "1": "待处理", "2": "处理中", "3": "已完成" };
 
 const OP_TEXT: Record<string, string> = {
   create: "新建需求",
@@ -136,7 +141,29 @@ function mapTrajectory(traj: TwRow[]): TrajectoryItem[] {
     });
 }
 
-export function rowToTask(row: TwRow, detail: TwRow | null, traj: TwRow[]): Task {
+// getByDemand 返回的是该需求下的任务行，按行 id（任务 id）筛出当前任务的处理人。
+// 同一任务可能有多行（多处理人），全部保留。
+function mapHandlers(rows: TwRow[], taskId: string): TaskHandler[] {
+  return rows
+    .filter((r) => str(r.id) === taskId)
+    .map((r) => {
+      const name = decodeField(r.username);
+      const st = decodeField(r.status);
+      return {
+        username: name.value || name.text,
+        maxHour: toNum(r.max_hour),
+        status:
+          st.text && !/^\d+$/.test(st.text) ? st.text : STATUS_TEXT[st.value] || st.value,
+      };
+    });
+}
+
+export function rowToTask(
+  row: TwRow,
+  detail: TwRow | null,
+  traj: TwRow[],
+  demandTasks: TwRow[] = []
+): Task {
   const d = detail || {};
   const pick = (k: string): unknown =>
     row[k] !== undefined && row[k] !== null && row[k] !== "" ? row[k] : d[k];
@@ -153,13 +180,16 @@ export function rowToTask(row: TwRow, detail: TwRow | null, traj: TwRow[]): Task
     fjUrls(t.fj).forEach((u) => imgs.push(u));
   });
 
+  const id = str(pick("id"));
+
   return {
-    id: str(pick("id")),
+    id,
     demandId: str(pick("demand_id")),
     title: str(pick("title")),
     module: str(pick("module")),
     customerName: str(pick("customer_name")),
     assignee: str(pick("username")),
+    handlers: mapHandlers(demandTasks, id),
     twStatus: statusLabel(row, detail),
     leval: decodeField(pick("leval")).text,
     taskType: decodeField(pick("task_type")).text,

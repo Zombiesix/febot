@@ -41,6 +41,15 @@ export const TrajectoryItem = z.object({
 });
 export type TrajectoryItem = z.infer<typeof TrajectoryItem>;
 
+// 任务处理人明细：来自协作平台 getByDemand（入参为需求 id，按任务 id 过滤）。
+// status 已在服务端映射为中文（待处理/处理中/已完成）。
+export const TaskHandler = z.object({
+  username: z.string().default(""),
+  maxHour: z.number().nullable().default(null),
+  status: z.string().default(""),
+});
+export type TaskHandler = z.infer<typeof TaskHandler>;
+
 export const Task = z.object({
   id: z.string(),
   demandId: z.string().default(""),
@@ -48,6 +57,7 @@ export const Task = z.object({
   module: z.string().default(""),
   customerName: z.string().default(""),
   assignee: z.string().default(""),
+  handlers: z.array(TaskHandler).default([]),
   twStatus: z.string().default(""),
   leval: z.string().default(""),
   taskType: z.string().default(""),
