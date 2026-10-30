@@ -121,6 +121,12 @@ export default function StageSheet({
             任务 {taskId} · 更新该阶段的状态与信息
           </SheetDescription>
         </SheetHeader>
+        <div className="flex flex-col gap-0.5 pl-4 pr-4">
+          <div>任务名</div>
+          <SheetDescription>
+            {task?.title || ""}
+          </SheetDescription>
+        </div>
         <div className="space-y-4 px-4">
           <div className="space-y-2">
             <Label>状态</Label>
