@@ -307,6 +307,18 @@
       save();
     }
 
+    // ---- 一键完成：把所有项目标记为「已完成」（导出前的一次性收尾） ----
+    function completeAll() {
+      const projects = state.projects || [];
+      if (!projects.length) { showToast('暂无项目'); return; }
+      const pending = projects.filter(p => p.packaged !== 'done');
+      if (!pending.length) { showToast('所有项目都已完成'); return; }
+      if (!confirm(`将 ${pending.length} 个项目标记为「已完成」？`)) return;
+      pending.forEach(p => { p.packaged = 'done'; });
+      save();
+      showToast(`已将 ${pending.length} 个项目标记为已完成`);
+    }
+
     // ---- 同步版本：从开发平台拉取每个项目的最新版本号 ----
     async function syncVersions() {
       const projects = state.projects || [];
@@ -585,7 +597,7 @@
         p.features = '';
         p.fixes = '';
         p.fxByUser = {};
-        p.packaged = 'doing';
+        p.packaged = 'todo';
       });
       state.currentWeekFinished = [];
       state.currentWeekByUser = {};
