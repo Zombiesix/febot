@@ -131,3 +131,40 @@
     @apply font-sans;
   }
 }
+
+/* diff2html 只带了浅色一套配色：深色模式下它仍是浅绿/浅红底，
+   而我们继承的是白色正文，背景和字都发白，增减行几乎看不清。
+   把它暴露的调色变量重新接到深色主题上，正文继续用继承的 foreground。 */
+.dark .diff2html-wrapper {
+  --d2h-bg-color: oklch(0.205 0 0);
+  --d2h-border-color: oklch(1 0 0 / 12%);
+  --d2h-dim-color: oklch(0.708 0 0);
+  --d2h-line-border-color: oklch(1 0 0 / 8%);
+  --d2h-file-header-bg-color: oklch(0.269 0 0);
+  --d2h-file-header-border-color: oklch(1 0 0 / 12%);
+  --d2h-empty-placeholder-bg-color: oklch(1 0 0 / 4%);
+  --d2h-empty-placeholder-border-color: oklch(1 0 0 / 10%);
+  --d2h-selected-color: rgb(56 139 253 / 20%);
+  --d2h-ins-bg-color: rgb(46 160 67 / 18%);
+  --d2h-ins-border-color: rgb(46 160 67 / 40%);
+  --d2h-ins-highlight-bg-color: rgb(46 160 67 / 45%);
+  --d2h-ins-label-color: #3fb950;
+  --d2h-del-bg-color: rgb(248 81 73 / 15%);
+  --d2h-del-border-color: rgb(248 81 73 / 40%);
+  --d2h-del-highlight-bg-color: rgb(248 81 73 / 45%);
+  --d2h-del-label-color: #f85149;
+  --d2h-change-del-color: rgb(210 153 34 / 20%);
+  --d2h-change-ins-color: rgb(46 160 67 / 22%);
+  --d2h-info-bg-color: rgb(56 139 253 / 12%);
+  --d2h-info-border-color: rgb(56 139 253 / 35%);
+  --d2h-change-label-color: #d29922;
+  --d2h-moved-label-color: #58a6ff;
+}
+
+/* 行内高亮的 <ins>/<del> 在深色下也要跟整行底色区分开，同时别盖住行号列 */
+.dark .diff2html-wrapper .d2h-code-line ins,
+.dark .diff2html-wrapper .d2h-code-side-line ins,
+.dark .diff2html-wrapper .d2h-code-line del,
+.dark .diff2html-wrapper .d2h-code-side-line del {
+  color: inherit;
+}
