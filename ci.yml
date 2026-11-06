@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+    branches: [dev, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: setup + lint + typecheck + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # CI 不需要下载 Electron 二进制；typecheck / 单测都不启动 Electron。
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.0"
+
+      - name: Enable yarn 1.22.19
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.19 --activate
+          yarn --version
+
+      - name: Cache yarn
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/yarn
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Setup smoke (yarn setup)
+        run: |
+          yarn setup
+          test -f febot.config.json
+          test -f tasks.md
+          test -f file-lock.md
+          test -f .claude/settings.json
+          test -f swagger-mcp-server/services.conf
+
+      - name: Lint workspace
+        run: yarn --cwd xiaoqian-manager lint
+
+      - name: Typecheck code-indexer
+        run: yarn --cwd code-indexer typecheck
+
+      - name: Typecheck desktop
+        run: yarn --cwd desktop typecheck
+
+      - name: Unit tests
+        run: yarn --cwd desktop test
+
+      - name: Root unit tests
+        run: yarn test

@@ -5,6 +5,7 @@
   "description": "febot：前端研发自动化工作区",
   "license": "MIT",
   "scripts": {
+    "test": "node --test tests/",
     "setup": "node scripts/ensure-config.mjs && yarn --cwd code-indexer && yarn --cwd xiaoqian-manager && yarn --cwd swagger-mcp-server && yarn --cwd desktop",
     "demo": "node scripts/demo.mjs",
     "demo:repo": "node scripts/init-demo-repo.mjs",
