@@ -55,6 +55,9 @@ jobs:
           test -f .claude/settings.json
           test -f swagger-mcp-server/services.conf
 
+      - name: Script unit tests
+        run: yarn test
+
       - name: Lint workspace
         run: yarn --cwd xiaoqian-manager lint
 
