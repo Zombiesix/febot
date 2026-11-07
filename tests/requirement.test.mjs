@@ -1,43 +1,24 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-// febot.mjs derives paths at import time. Set both overrides before importing
-// either module so a developer's real configuration and tasks stay untouched.
-const tempParent = fs.realpathSync(os.tmpdir());
-const fixtureRoot = fs.mkdtempSync(path.join(tempParent, "febot-requirement-"));
-const configPath = path.join(fixtureRoot, "febot.config.json");
-const originalEnv = {
-  FEBOT_ROOT: process.env.FEBOT_ROOT,
-  FEBOT_CONFIG: process.env.FEBOT_CONFIG,
-};
-process.env.FEBOT_ROOT = fixtureRoot;
-process.env.FEBOT_CONFIG = configPath;
-fs.writeFileSync(configPath, JSON.stringify({ repositories: [] }));
+import { createFixture } from "./helpers.mjs";
 
-after(() => {
-  for (const [key, value] of Object.entries(originalEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  const resolved = fs.realpathSync(fixtureRoot);
-  assert.equal(path.dirname(resolved), tempParent);
-  assert(path.basename(resolved).startsWith("febot-requirement-"));
-  fs.rmSync(resolved, { recursive: true, force: true });
-});
+// febot.mjs derives paths at import time. Point both overrides at the fixture
+// before importing any script module so real config and tasks stay untouched.
+const fixture = createFixture();
+const { root: fixtureRoot, configPath } = fixture;
 
 const { resolveRepo, resolveBranch, deriveProjectMap, parseTasksRow } =
   await import("../scripts/lib/requirement.mjs");
 const { ROOT, TASKS_PATH, ScriptError, readConfig } =
   await import("../scripts/lib/febot.mjs");
 
+after(() => fixture.cleanup());
+
 function config(repositories, defaults = { devBranch: "develop" }) {
-  return {
-    dir: fixtureRoot,
-    raw: { repoRoot: "repositories", repositories, defaults },
-  };
+  return fixture.makeCfg({ repoRoot: "repositories", repositories, defaults });
 }
 
 function expectScriptError(fn, code, details) {
@@ -191,13 +172,13 @@ test("parseTasksRow reports a missing fixture file with code 6", () => {
 });
 
 test("parseTasksRow requires an exact alias and reports missing aliases", () => {
-  fs.writeFileSync(TASKS_PATH, "| R-missing-more | Portal | P1 | full | web | init | link |\n");
+  fixture.writeTasks("| R-missing-more | Portal | P1 | full | web | init | link |\n");
   expectScriptError(() => parseTasksRow("R-missing"), 6);
 });
 
 test("parseTasksRow reads a CRLF fixture and treats the dash repository as empty", () => {
   const line = "| R-demo | Portal | P1 | full | - | init | docs/requirements/R-demo/context.md |";
-  fs.writeFileSync(TASKS_PATH, ["# Tasks", "", line, ""].join("\r\n"));
+  fixture.writeTasks(["# Tasks", "", line, ""].join("\r\n"));
   assert.deepEqual(parseTasksRow("R-demo"), {
     line: 2,
     cells: ["", "R-demo", "Portal", "P1", "full", "-", "init", "docs/requirements/R-demo/context.md", ""],

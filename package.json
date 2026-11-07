@@ -5,7 +5,7 @@
   "description": "febot：前端研发自动化工作区",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/requirement.test.mjs",
+    "test": "node --test \"tests/**/*.test.mjs\"",
     "setup": "node scripts/ensure-config.mjs && yarn --cwd code-indexer && yarn --cwd xiaoqian-manager && yarn --cwd swagger-mcp-server && yarn --cwd desktop",
     "dev": "node scripts/dev.mjs",
     "xiaoqian": "yarn --cwd xiaoqian-manager dev",
