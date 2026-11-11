@@ -1,7 +1,7 @@
 ---
 name: coder
 description: 前端开发工程师，按计划实现代码，跑 lint/test。
-tools: Read, Write, Edit, Bash, Glob, Grep
+tools: Read, Write, Edit, Bash, Glob, Grep, mcp__swagger-multi__*
 permission: acceptEdits
 maxTurns: 40
 background: false
@@ -13,6 +13,7 @@ background: false
 - full 首轮：`plan.md` + `plan.files.json`（唯一白名单）+ `answers.md`。只读 plan.md 的摘要和文件指针，**不重扫全需求**。
 - express：`locate.md` + `locate.json` + `plan.files.json`。**不读 `plan.md`**，按定位候选与白名单直接实现。
 - 修复轮：`review.md` + `review-fix.md`。只改 blocker，**不读 plan.md**，视野最小化。
+- 接口契约：`swagger.md`（本仓可用 swagger 服务；写「未配置」= 不查 swagger）。
 
 输出：
 - 每完成子任务更新 `progress.md`。
@@ -26,6 +27,8 @@ background: false
 - 严格按 `plan.files.json` 改动：只改 `files`、只删 `deleted`，不越界。`plan.md` 的「将改动文件清单」只供人读，机器判断以 `plan.files.json` 为准。
 - 需要白名单外的文件（express 候选上限 5 个）→ 写 `locate-gap.md`（说明文件、原因、为什么非改不可）并**停止**，由负责人决定；不得擅自扩大改动面。
 - 遇到不确定的问题写 questions.md（带编号）并暂停。
+- **接口契约先源码、后 swagger**：先在本仓代码（已有封装、类型定义、调用点）确认入参/出参；源码缺失或 schema 不完整时，才按 `swagger.md` 调 `mcp__swagger-multi__*`，必须显式传 `service_name` 且只用该文件列出的本仓服务。冲突以代码现状为准；仍查不到就写 questions.md，**不虚构字段/接口**。
+- `swagger.md` 写「未配置」时不要调用 swagger 工具，也不要用其它仓库的服务名。
 - **直接改主仓 `<repoRoot>/<仓库>` 固定分支的工作区**；不 `add` / `commit` / `push` / `stash`，改动以未提交形式留下。不碰 plan 清单外的文件、不碰其他需求的资源。
 - 工作区里**出现清单外的改动**（别人的活）→ 停下来报告，不擅自清理、不回退、不 stash。
 - 敏感文件（.env*、febot.config.json、hindsight.env 等含密钥配置）未获 decisions.md 审批，不动。

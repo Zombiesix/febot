@@ -1,49 +1,63 @@
-# swagger-multi MCP 全局配置说明
+# swagger-multi MCP 项目级配置说明
 
-本文档记录将 `swagger-multi` MCP 从项目级配置迁移为**用户全局配置**的完整过程，以及期间发现并修复的包 bug、最终配置结构和使用方法。
+本文档说明 `swagger-multi` 如何按 **febot 项目级**（仓库根 `.mcp.json`）注册，以及期间发现并修复的包 bug、配置结构和使用方法。
 
 ---
 
 ## 1. 背景与目标
 
 - swagger 网关通常要求带 `group` 参数，例如 `/v2/api-docs?group=defaultGroup`、`/v2/api-docs?group=1-第一组`；不带 `group` 的 `/v2/api-docs` 多数会 404。
-- 目标：把本仓安装的 `swagger-mcp-server` 注册成当前电脑用户的**全局 MCP**，按分组配好你要用的服务。
+- 目标：让所有**从 febot 根目录启动**的 Claude Code 会话（包括流水线 `claude "/pipeline ..."`）都能用 `mcp__swagger-multi__*`，同时不动用户级全局配置。
 
-## 2. 怎么配（一条命令）
+## 2. 怎么配（配置驱动）
 
-1. `yarn setup` 会在 `swagger-mcp-server/` 下生成 `services.conf`（来自 `example/swagger-services.conf`）。
-2. 按注释填服务清单，一行一条 `服务名=api-docs 地址`。
-3. 跑 `bash swagger-mcp-server/update_global_mcp.sh`，它会 `claude mcp remove` 再 `claude mcp add --scope user swagger-multi`，服务名与地址全部取自 `services.conf`。
+1. 在仓库根 `febot.config.json` 的 `repositories[].swagger` 里按仓配置服务：
+   `{ "name": "服务名", "url": "http://host/appswagger/v2/api-docs?group=分组" }`。
+   也可以启动 `xiaoqian-manager`，在「设置 → 仓库」里每行填 `服务名=api-docs 地址`。
+2. 跑 `yarn swagger`：读配置 → 校验 → 汇总生成 `swagger-mcp-server/services.conf` → 打 loader 补丁 → 确保仓库根 `.mcp.json` 里 `swagger-multi` 指向 `scripts/swagger-mcp-launcher.mjs`。
+3. 重启已打开的 Claude Code 会话，`mcp__swagger-multi__*` 才会生效。
 
-最终写入的是用户级配置文件 `%USERPROFILE%\.claude.json`（Windows）/ `~/.claude.json`，结构如下：
+`services.conf` 是**生成物**，不要手改；要增删服务改配置后重新 `yarn swagger`。其它命令：
+
+- `yarn swagger --dry-run`：只打印汇总结果，不落盘；
+- `yarn swagger --check`：检查清单、loader 补丁、`.mcp.json` 是否一致（0/1/6）；
+- `yarn swagger:patch`：只打 loader 补丁（幂等）；
+- `bash swagger-mcp-server/update_global_mcp.sh`：**可选**，额外建一份用户级全局注册（给不在 febot 根目录启动的会话用；需要能执行 `bash` 和 `claude`）。
+
+项目级配置只有一份静态文件 `.mcp.json`，内容固定为：
 
 ```json
 {
   "mcpServers": {
     "swagger-multi": {
+      "type": "stdio",
       "command": "node",
-      "args": [
-        "<仓库根>/swagger-mcp-server/node_modules/@aike1202/swagger-mcp-server/build/index.js",
-        "example-a=http://your-swagger-host:9080/aswagger/v2/api-docs?group=defaultGroup",
-        "example-b=http://your-swagger-host:9080/bswagger/v2/api-docs?group=1-第一组"
-      ]
+      "args": ["scripts/swagger-mcp-launcher.mjs"],
+      "env": {}
     }
   }
 }
 ```
 
-- **command**：`node`
-- **第一个 arg**：补丁版 MCP 服务器入口（本目录下安装的包）
-- **其余 arg**：`服务名=swagger文档URL`，数量与你 `services.conf` 的行数一致
+`swagger-mcp-launcher.mjs` 启动时读 `swagger-mcp-server/services.conf`，把每行 `服务名=URL` 转成上游 server 的 argv。因此：
+
+- **改服务不用改 `.mcp.json`，也不用重建 MCP 注册**，只重跑 `yarn swagger`；
+- 注册不再经过 Git Bash / `claude mcp`，不会再报「全局 MCP 注册失败」。
+
+### 批准与生效范围
+
+- `.mcp.json` 属于 project scope，Claude Code 首次会要求批准。`yarn swagger` 会把 `swagger-multi` 写进 `.claude/settings.local.json` 的 `enabledMcpjsonServers`，pipeline 这类无人值守会话就不会卡在批准弹窗。
+- 只有**从 febot 根目录启动**的会话会加载这份配置；直接在 `gitlab/<仓库>` 里打开 Claude Code 不会加载 febot 的 `.mcp.json`。需要那种用法时，再额外跑一次可选的 `update_global_mcp.sh`。
 
 > 注意：不用 `npx -y @aike1202/swagger-mcp-server`，因为官方包存在解析 bug（见第 4 节），必须运行本地的补丁版。
 
 ## 3. 服务清单
 
-服务名和分组完全由你团队的 swagger 网关决定，写在 `swagger-mcp-server/services.conf` 里（该文件不入库）。两个常见坑：
+服务名和分组完全由你团队的 swagger 网关决定，配置写在 `febot.config.json` 的 `repositories[].swagger`（`services.conf` 只是生成物）。两个常见坑：
 
 - **必须带 `group`**：先从网关的 `swagger-resources` 端点（如 `http://<host>:<port>/<app>swagger/swagger-resources`）拿到分组名，再拼 `/v2/api-docs?group=<分组名>`。
-- **地址里可能有中文**：`services.conf` 里写原文即可，脚本原样透传；URL 编码由 swagger 服务端处理。
+- **地址里可能有中文**：配置里写原文即可；`yarn swagger` 写入 `services.conf` 时会用 `encodeURI()` 转成 ASCII（Node 的 http 客户端拒收含中文的 URL）。
+- **服务名跨仓唯一**：全局 MCP 以 `name` 为 key，两个仓配了不同 URL 的同名服务会被 `yarn swagger` 报错拦下。
 
 ## 4. 修复的 Bug（`@aike1202/swagger-mcp-server@1.2.0`）
 
@@ -120,7 +134,7 @@
 
 ## 7. 维护注意事项
 
-- **补丁位于 `node_modules` 内**，若对该目录执行 `yarn`/`npm install` 重新安装 `@aike1202/swagger-mcp-server`，loader.js 的补丁会被覆盖，需要重新应用。可用 `patch-package` 固化补丁（`postinstall` 自动恢复）。
-- 官方包更新到修复该 bug 的新版本后，可改回 `npx -y @aike1202/swagger-mcp-server` 并删除本地补丁目录。
-- `update_global_mcp.sh` 可重复执行：它按 `services.conf` 重建全局 MCP 配置。
-- swagger 地址/分组可能随后端变更，变更后改 `services.conf` 再跑一次脚本即可。
+- **补丁位于 `node_modules` 内**，若重新安装 `@aike1202/swagger-mcp-server`，loader.js 的补丁会被覆盖。四层自动恢复：该包 `postinstall`、根 `yarn setup` 末尾、`yarn swagger` 注册前、`update_global_mcp.sh` 注册前，都会运行 `node ../scripts/patch-swagger-mcp.mjs`（幂等）。
+- 官方包更新到修复该 bug 的新版本后，可改回 `npx -y @aike1202/swagger-mcp-server` 并删除本地补丁；届时补丁脚本会以 exit 6 报「代码模式失配」，不会静默跳过。
+- `yarn swagger` 可重复执行：它按配置重建 `services.conf`，并确保项目级 `.mcp.json` 指向 launcher。
+- swagger 地址/分组可能随后端变更，变更后改 `febot.config.json` 再跑一次 `yarn swagger` 即可。

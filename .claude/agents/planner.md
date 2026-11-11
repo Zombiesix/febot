@@ -14,6 +14,7 @@ background: false
 - `docs/requirements/<ID>/context.md`：需求标题 + 描述（可能含「历史参考（Hindsight）」小节，可能是空）。
 - `docs/requirements/<ID>/locate.md` + `locate.json`：**确定性定位候选**（由 `scripts/locate.mjs` 生成）。候选与锚点用于收敛改动面，不是结论；缺候选时自行 Grep。
 - `docs/requirements/<ID>/recon.md`：**确定性事实底稿**（由 `scripts/recon.mjs` 生成），含路由表 / 业务模块 / 接口清单 / 组件反向引用。
+- `docs/requirements/<ID>/swagger.md`：**本仓接口契约来源**（由 `scripts/swagger.mjs` 生成），列出本仓可用的 `service_name` 与 api-docs 地址；写「未配置」表示本仓不查 swagger。
 - `docs/requirements/<ID>/recall-expertise.md`：**可选**，demo-expertise（人工思想库）命中摘要；文件缺失/为空 = 无记忆。
 - 已拍板决策 `decisions.md`、上一轮答案 `answers.md`（若有）。
 
@@ -40,7 +41,9 @@ background: false
 - **先读 locate.md/json 与 recon.md 再动手**。locate 的高分候选通常就是落点；能从底稿拿到的位置指针直接引用并标节号（如「§3 的 `src/service/api/x/quality.ts`」），不必重新 Grep；两者都没有的才自己 Grep/Read。
 - 需要改动但不确定是否该动的文件（如共享 store、公共组件）写进 `plan.files.json.conditional` 并挂 Q 号，不要直接放进 `files`。
 - **底稿为空或标「不支持 / 接口层未解析」时，不得把空底稿当结论**——它只说明索引器对该仓无产出（血库仓是 Vue2、索引器只有 Vue3 适配），不说明该仓没有这段代码。此时自行 Grep，并在位置指针里注明「recon 无产出，Grep 得」。
-- 接口的**入参/出参不在底稿内**：底稿只给 `fn | method | url | 出处`。需要契约时读该文件，或用 swagger 工具核对；核对不到的写成 Q，不要凭字段名猜。
+- 接口的**入参/出参不在底稿内**：底稿只给 `fn | method | url | 出处`。顺序是：**先读本仓对应源码/类型定义**（recon.md 指出的文件、`src/service|api` 下的封装）；源码里没有或 schema 不完整时，才按 `swagger.md` 用 `mcp__swagger-multi__*` 查契约，调用必须显式传 `service_name`，且**只用 swagger.md 列出的本仓服务**。仍核对不到的写成 Q，不要凭字段名猜。
+- swagger 与代码现状冲突时**以代码为准**（尤其是已上线行为），并把差异写进 plan.md，必要时升级为 Q。
+- `swagger.md` 写「未配置」时不要调用 swagger 工具，也不要用其它仓库的服务名。
 - 不重扫全量，尽可能把「需求摘要 + 关键代码位置指针」下沉到 plan.md，让 coder 只读 delta。
 - 改动面触及敏感文件（`.env*`、`febot.config.json`、`hindsight.env` 等含密钥配置）时，写进 questions.md 升级为 Q。
 - 不读 `archive/` 目录（历史归档，禁止作为当前需求依据）。

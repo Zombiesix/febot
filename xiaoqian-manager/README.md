@@ -45,7 +45,7 @@ runner 启动时在 `xiaoqian-manager/data/runner.json` 写入 `{pid,port,httpUr
 
 | 文件                          | 用途                                                             |
 | ----------------------------- | ---------------------------------------------------------------- |
-| `../febot.config.json`        | 仓库根 / `repositories[]` 仓库登记表（分支、Jenkins、项目）/ 协作平台（`teamwork` 段，含 `loginName` / `password`） |
+| `../febot.config.json`        | 仓库根 / `repositories[]` 仓库登记表（分支、Jenkins、项目、swagger 服务）/ 协作平台（`teamwork` 段，含 `loginName` / `password`） |
 | `data/tasks.json`             | 同步下来的需求（本目录内，已 gitignore）                          |
 | `data/task-sources/<id>/`     | 上传的自定义任务来源脚本（`current/` + `versions/` + `last-run.json`） |
 

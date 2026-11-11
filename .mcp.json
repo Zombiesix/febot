@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "swagger-multi": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/swagger-mcp-launcher.mjs"
+      ],
+      "env": {}
+    }
+  }
+}

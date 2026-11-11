@@ -10,7 +10,7 @@
 | `tasks.md`              | `tasks.md`                          |
 | `file-lock.md`          | `file-lock.md`                      |
 | `claude-settings.json`  | `.claude/settings.json`             |
-| `swagger-services.conf` | `swagger-mcp-server/services.conf`  |
+| `swagger-services.conf` | `swagger-mcp-server/services.conf`（生成物占位，真源是 `febot.config.json` 的 `repositories[].swagger`；用 `yarn swagger` 覆盖生成） |
 | `hindsight.env`         | `scripts/hindsight.env`             |
 
 另外两个目录不参与 `yarn setup`，只给演示模式用：

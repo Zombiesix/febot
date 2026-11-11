@@ -58,7 +58,7 @@
 | /pipeline 剧本 | Claude Code 命令 + 4 个 subagent + 2 个 skill | runner 的 PTY 里执行 `claude "/pipeline <taskId>"` | — | `docs/requirements/`、`tasks.md`、`file-lock.md`、`.febot/` |
 | 流水线脚本 | Node ESM（`scripts/*.mjs`）+ Python（hindsight，可选） | 由 Claude 的 Bash 工具调用 | — | 同上 |
 | code-indexer | TS + tsx + Vue 编译器 | 被 `scripts/lib/repo-index.mjs` 调用 | — | `.febot/index/` |
-| swagger-mcp-server | npm 包 + 注册脚本 | 写入用户级 `~/.claude.json`，供 Claude MCP 使用 | — | `swagger-mcp-server/services.conf` |
+| swagger-mcp-server | npm 包 + launcher | 仓库根 `.mcp.json` 注册项目级 MCP，launcher 启动时读 `services.conf` | — | `swagger-mcp-server/services.conf`、`.mcp.json` |
 | Hindsight | Docker（可选） | 外部 | 8888 | 外部 |
 
 > om 发版看板为独立项目，桌面端不集成（不携带、不启动），保持独立部署使用，故不列入运行时组成。
@@ -160,6 +160,7 @@
     settings.json                # 首次 seed，之后归用户
     settings.local.json          # 用户
   .febot\index\  tmp\  runtime.json   # 索引缓存 / 临时 / 上次同步清单
+  .mcp.json                      # 项目级 MCP 注册（受管，指向 swagger launcher）
   scripts\                       # 运行时资产（受管，hindsight.env 除外）
   code-indexer\                  # 运行时资产（受管，含 node_modules）
   swagger-mcp-server\            # 运行时资产（受管，services.conf 除外）
@@ -411,7 +412,7 @@ window.febotDesktop = {
 | P1 | 托盘 + 原生通知 | run 进入 done/failed 时通知；关闭窗口默认最小化到托盘 |
 | P1 | 原生菜单 | 打开工作区 / 打开配置 / 重启服务 / 查看日志 / 检查更新 |
 | P1 | 自动更新 | 空闲时下载，有 run 进行中则延后 |
-| P1 | Swagger MCP 一键注册 | 调 `bash swagger-mcp-server/update_global_mcp.sh`，`NODE_CMD=<内置 node>` |
+| P1 | Swagger MCP 一键配置 | 调 `scripts/sync-swagger.mjs`：写 `services.conf`、打补丁、维护项目级 `.mcp.json`（不依赖 bash/claude） |
 | P2 | 诊断包导出 | 日志 + 配置（**脱敏 password/cookie/token**）+ 版本信息，打 zip |
 | P2 | 克隆目标仓向导 | 在 `gitlab/` 下执行 clone，读 `branches` 并 checkout |
 

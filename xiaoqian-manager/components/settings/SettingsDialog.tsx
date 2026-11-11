@@ -20,6 +20,7 @@ import type {
   RepositoryEntry,
   RepositoryProject,
   SanitizedSettings,
+  SwaggerService,
 } from "@/lib/domain/settings";
 import type { TaskSourceSummary } from "@/lib/domain/task-source";
 
@@ -45,6 +46,29 @@ function textToProjects(text: string): RepositoryProject[] {
       .map((k) => k.trim())
       .filter(Boolean);
     out.push(keywords.length ? { name, keywords } : { name });
+  }
+  return out;
+}
+
+// swagger 输入格式与 services.conf 一致：每行 `服务名=api-docs 地址`。
+// 按第一个 = 切分，URL 里的 ?group=... 不会被截断。
+function swaggerToText(swagger?: SwaggerService[]): string {
+  return (swagger ?? []).map((s) => `${s.name}=${s.url}`).join("\n");
+}
+
+function textToSwagger(text: string): SwaggerService[] {
+  const seen = new Set<string>();
+  const out: SwaggerService[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const name = line.slice(0, eq).trim();
+    const url = line.slice(eq + 1).trim();
+    if (!name || !url || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, url });
   }
   return out;
 }
@@ -410,6 +434,15 @@ export default function SettingsDialog({
                             placeholder={"项目名（每行一个）\n同名项目消歧：项目名|关键词1,关键词2"}
                             onChange={(e) => updateRepo(index, { projects: textToProjects(e.target.value) })}
                           />
+                          <textarea
+                            className="mt-2 min-h-16 w-full resize-y rounded-md border bg-background p-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={swaggerToText(repo.swagger)}
+                            placeholder={"Swagger 服务（每行 服务名=api-docs 地址）\ncssd-default=http://your-swagger-host:9080/cssdSwagger/v2/api-docs?group=defaultGroup"}
+                            onChange={(e) => updateRepo(index, { swagger: textToSwagger(e.target.value) })}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            本仓可用的 swagger 服务；保存后运行 <code>yarn swagger</code> 同步到项目级 MCP。
+                          </p>
                         </div>
                       ))}
                     </div>

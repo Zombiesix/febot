@@ -12,6 +12,12 @@
     },
     {
       "name": "example-repo-mobile",
+      "swagger": [
+        {
+          "name": "example-mobile-default",
+          "url": "http://your-swagger-host:9080/exampleSwagger/v2/api-docs?group=defaultGroup"
+        }
+      ],
       "projects": [{ "name": "示例产品 A", "keywords": ["移动端"] }]
     },
     {

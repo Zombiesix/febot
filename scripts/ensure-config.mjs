@@ -30,7 +30,7 @@ const TEMPLATES = [
   {
     src: 'example/swagger-services.conf',
     dst: 'swagger-mcp-server/services.conf',
-    hint: 'swagger-multi 服务清单（一行一条 服务名=地址），填完跑 update_global_mcp.sh',
+    hint: 'swagger-multi 服务清单（生成物）：在 febot.config.json 的 repositories[].swagger 里配置，再跑 yarn swagger',
   },
   {
     src: 'example/hindsight.env',

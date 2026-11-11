@@ -223,6 +223,12 @@ const copiedScripts = copyDir(path.join(SOURCE, "scripts"), path.join(runtimeOut
 });
 log(`scripts：${copiedScripts} 个文件`);
 
+const mcpConfig = path.join(SOURCE, ".mcp.json");
+if (fs.existsSync(mcpConfig)) {
+  copyFile(mcpConfig, path.join(runtimeOut, ".mcp.json"));
+  log("项目级 .mcp.json 已复制");
+}
+
 const copiedIndexer = copyDir(
   path.join(SOURCE, "code-indexer"),
   path.join(runtimeOut, "code-indexer"),

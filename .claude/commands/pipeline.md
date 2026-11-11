@@ -157,15 +157,17 @@ node scripts/locate.mjs <别名> --json
 
 ```bash
 node scripts/recon.mjs <别名>
+node scripts/swagger.mjs <别名>
 ```
 
-产出 `recon.md`（确定性事实底稿）。失败或标「不支持 / 接口层未解析」不阻塞——照常委派，由 planner 自行 Grep 补位。`advance timing <别名> --name recon --machine-ms <recon.meta.json.elapsedMs>`。
+产出 `recon.md`（确定性事实底稿）与 `swagger.md`（本仓可用 swagger 服务与查询顺序；未配置也会生成，照常继续）。recon 失败或标「不支持 / 接口层未解析」不阻塞——照常委派，由 planner 自行 Grep 补位。`advance timing <别名> --name recon --machine-ms <recon.meta.json.elapsedMs>`。
 
 ```
 请作为 planner 处理需求 <别名>。
 - 读 context: docs/requirements/<别名>/context.md（含「历史参考」，可能为空）
 - 读 locate: docs/requirements/<别名>/locate.md 与 locate.json（确定性定位候选；用于收敛改动面，不是结论）
 - 读事实底稿: docs/requirements/<别名>/recon.md（为空/标「不支持」时自行 Grep，别当结论）
+- 读接口契约: docs/requirements/<别名>/swagger.md（本仓可用 swagger 服务与查询顺序；写「未配置」= 不查）
 - 可选读记忆: docs/requirements/<别名>/recall-expertise.md（缺失/为空即无记忆）
   命中人工设计偏好时，plan.md 的取舍须显式对齐或说明偏离；与仓库现状冲突 → 升级为 M 类问题，不猜不覆盖
 - 有不确定的问题按编号写入 questions.md 并暂停等答案；conditional 文件必须带对应 Q 号
@@ -203,11 +205,18 @@ node scripts/advance.mjs wait <别名> --name plan_confirm --status done --by <A
 
 ### coding → @coder
 
+进入 coding 先刷新本仓接口契约清单（覆盖 express 与「重开会话后直接 resume 到 coding」的情况）：
+
+```bash
+node scripts/swagger.mjs <别名>
+```
+
 full 模式输入：
 
 ```
 请作为 coder 实现需求 <别名>（mode=full）。
 - 读 plan.md（只读摘要与文件指针，不重扫全需求）、plan.files.json（唯一白名单）、answers.md
+- 读接口契约: docs/requirements/<别名>/swagger.md（先项目源码，缺契约再查本仓服务；「未配置」= 不查）
 - 严格只改 plan.files.json 中 files 列出的文件；deleted 只删列出的文件
 - 需要清单外文件 → 写 locate-gap.md（或带编号的 questions.md）并停止，不擅自扩大改动面
 - 每完成子任务更新 progress.md
@@ -221,6 +230,7 @@ express 模式输入（**不读 plan.md**）：
 ```
 请作为 coder 实现需求 <别名>（mode=express）。
 - 读 locate.md、locate.json（候选与证据）、plan.files.json（白名单）
+- 读接口契约: docs/requirements/<别名>/swagger.md（先项目源码，缺契约再查本仓服务；「未配置」= 不查）
 - 严格只改 plan.files.json 中 files 列出的文件；需要第 6 个文件 → 写 locate-gap.md 并停止
 - 每完成子任务更新 progress.md；跑 lint/test 写 test-report.md
 - 最后一条消息恰好一行 JSON（同上，mode=express）
@@ -256,6 +266,7 @@ node scripts/advance.mjs review-input <别名>
 ```
 请作为 coder 修复 <别名> 的 blocker。
 - 只读 review.md、review-fix.md，只改 blocker，不读 plan.md
+- 读接口契约: docs/requirements/<别名>/swagger.md（文件已存在，不重跑 swagger.mjs；「未配置」= 不查）
 - 只改 plan.files.json 内的文件；需要清单外文件 → 写 questions.md 并停止
 - 复测并更新 test-report.md；最后一条消息恰好一行 JSON（round=fixing）
 ```

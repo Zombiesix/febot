@@ -5,7 +5,10 @@
   "description": "febot：前端研发自动化工作区",
   "license": "MIT",
   "scripts": {
-    "setup": "node scripts/ensure-config.mjs && yarn --cwd code-indexer && yarn --cwd xiaoqian-manager && yarn --cwd swagger-mcp-server && yarn --cwd desktop",
+    "setup": "node scripts/ensure-config.mjs && yarn --cwd code-indexer && yarn --cwd xiaoqian-manager && yarn --cwd swagger-mcp-server && yarn --cwd desktop && node scripts/patch-swagger-mcp.mjs",
+    "swagger": "node scripts/sync-swagger.mjs",
+    "swagger:check": "node scripts/sync-swagger.mjs --check",
+    "swagger:patch": "node scripts/patch-swagger-mcp.mjs",
     "demo": "node scripts/demo.mjs",
     "demo:repo": "node scripts/init-demo-repo.mjs",
     "dev": "yarn --cwd xiaoqian-manager dev",

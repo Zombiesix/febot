@@ -28,6 +28,8 @@ yarn setup
 
 `yarn setup` 会从 `example/` 复制配置模板，并安装 `code-indexer` / `xiaoqian-manager` / `swagger-mcp-server` / `desktop` 的依赖。**目标文件已存在时跳过，不会覆盖**，重复执行是安全的。
 
+swagger 服务不在 `swagger-mcp-server/services.conf` 手填，而是配置在 `febot.config.json` 的 `repositories[].swagger`（`{ name, url }`），再用 `yarn swagger` 汇总生成 `services.conf`、打 MCP 补丁，并维护项目级 `.mcp.json`（launcher 启动时读 `services.conf`）。
+
 > 仓库约定：**不要改 node / npm / yarn 版本**，也不要提交 `.nvmrc` / `engines` 之类的版本锁定。涉及 `node_modules` 的安装请说明原因。
 
 ## 常用命令
@@ -41,6 +43,7 @@ yarn desktop:dev         # 桌面端开发模式
 yarn recon <别名>         # 生成需求的事实底稿
 yarn locate <别名>        # 确定性定位候选文件
 yarn feed --plan <文件>   # 接入一条需求
+yarn swagger             # 按 febot.config.json 汇总并维护项目级 swagger-multi MCP
 yarn index:query <cmd> <repo>   # 查询代码索引
 yarn assistant:probe     # 助手侧端到端探针
 ```

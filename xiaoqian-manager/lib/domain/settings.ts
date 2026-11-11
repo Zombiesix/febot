@@ -14,6 +14,13 @@ export interface RepositoryProject {
   keywords?: string[];
 }
 
+export interface SwaggerService {
+  /** MCP 里的 service_name，跨仓全局唯一；建议带业务分组，如 cssd-default */
+  name: string;
+  /** swagger v2 api-docs 地址（可带 ?group=...） */
+  url: string;
+}
+
 export interface RepositoryEntry {
   name: string;
   /** 覆盖 defaults.devBranch；为空时用全局默认 */
@@ -22,6 +29,8 @@ export interface RepositoryEntry {
   mergeBranch?: string;
   /** 只填 job 路径，地址由 jenkinsBase 拼 */
   jenkinsJob?: string;
+  /** 本仓可用的 swagger 服务；由 yarn swagger 汇总进项目级 MCP */
+  swagger?: SwaggerService[];
   projects: RepositoryProject[];
 }
 
@@ -86,6 +95,25 @@ export function nonEmptyStrings(value: unknown): string[] {
     .map((v) => v.trim());
 }
 
+export function parseSwaggerServices(value: unknown): SwaggerService[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: SwaggerService[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    const name = typeof obj.name === "string" ? obj.name.trim() : "";
+    const url = typeof obj.url === "string" ? obj.url.trim() : "";
+    if (!name || !url) continue;
+    // 服务名不能含 = / 换行：服务清单是 `name=url` 行格式
+    if (name.includes("=") || /[\r\n]/.test(name) || /[\r\n]/.test(url)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, url });
+  }
+  return out;
+}
+
 export function parseRepositoryEntries(value: unknown): RepositoryEntry[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -118,6 +146,8 @@ export function parseRepositoryEntries(value: unknown): RepositoryEntry[] {
     if (devBranch) entry.devBranch = devBranch;
     if (mergeBranch) entry.mergeBranch = mergeBranch;
     if (jenkinsJob) entry.jenkinsJob = jenkinsJob;
+    const swagger = parseSwaggerServices(obj.swagger);
+    if (swagger.length) entry.swagger = swagger;
     out.push(entry);
   }
   return out;

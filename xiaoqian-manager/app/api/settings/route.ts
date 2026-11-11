@@ -15,11 +15,17 @@ const Project = z.object({
   keywords: z.array(z.string().trim().min(1)).optional(),
 });
 
+const SwaggerService = z.object({
+  name: z.string().trim().min(1),
+  url: z.string().trim().min(1),
+});
+
 const Repository = z.object({
   name: z.string().trim().min(1),
   devBranch: z.string().trim().optional(),
   mergeBranch: z.string().trim().optional(),
   jenkinsJob: z.string().trim().optional(),
+  swagger: z.array(SwaggerService).optional(),
   projects: z.array(Project).default([]),
 });
 

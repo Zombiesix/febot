@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "postinstall": "node ../scripts/patch-swagger-mcp.mjs"
+  },
   "dependencies": {
     "@aike1202/swagger-mcp-server": "^1.2.0"
   }

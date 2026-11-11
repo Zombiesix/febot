@@ -125,9 +125,10 @@ yarn setup
    | `tasks.md`               | `tasks.md`                         | 需求元信息表（流水线会往里追加行）               |
    | `file-lock.md`           | `file-lock.md`                     | 并行冲突仲裁表                                   |
    | `claude-settings.json`   | `.claude/settings.json`            | Claude Code 权限规则（含 `archive/` 禁区 deny）  |
-   | `swagger-services.conf`  | `swagger-mcp-server/services.conf` | swagger-multi 服务清单                           |
+   | `swagger-services.conf`  | `swagger-mcp-server/services.conf` | swagger-multi 服务清单（**生成物**，真源是 `febot.config.json` 的 `repositories[].swagger`） |
 
    生成物**全部 gitignore**，每个团队各填各的；`example/` 下的模板是入库的公共样板，**不要直接改**。
+   `services.conf` 由 `yarn swagger` 从 `febot.config.json` 汇总生成，**不要手改**（下次同步会被覆盖）。
 
 2. 安装四个子项目的依赖：`code-indexer` / `xiaoqian-manager` / `swagger-mcp-server` / `desktop`。不需要桌面端时可单独执行 `yarn --cwd desktop install`，或从根 `setup` 里去掉 `desktop`。
 
@@ -171,6 +172,9 @@ yarn demo
       "devBranch": "dev-feature",                // 可选：覆盖 defaults.devBranch
       "mergeBranch": "dev",                  // 可选：覆盖 defaults.mergeBranch
       "jenkinsJob": "example-job-mobile",    // 可选：URL = jenkinsBase/<job>/build?delay=0sec
+      "swagger": [                           // 可选：本仓可用的 swagger 服务（流水线先查代码、再查这里）
+        { "name": "example-mobile-default", "url": "http://your-swagger-host:9080/exampleSwagger/v2/api-docs?group=defaultGroup" }
+      ],
       "projects": [                          // 一个仓库可对应多个项目名
         { "name": "示例产品 A", "keywords": ["移动端"] }
       ]
@@ -195,6 +199,17 @@ yarn demo
 
 - **`teamwork` 段留空 = 功能软降级**：不报错、不猜地址，「同步 / 一键更新」不可用，其余照常。
 - **`febot.config.json` 是敏感文件**：`cookie` / `password` 都在这，别提交、别贴给别人（它已 gitignore）。
+
+### 接口契约（swagger）
+
+`repositories[].swagger` 配的是**这个仓里能查到的 swagger 服务**，格式 `{ "name": "服务名", "url": "api-docs 地址" }`：
+
+- `name` 是 Agent 调 MCP 时传的 `service_name`，**跨仓全局唯一**；建议带业务前缀（如 `cssd-default`），不同系统重名会报错。
+- `url` 必须是 swagger v2 的 `.../v2/api-docs?group=<分组>`；不带 `group=` 多数网关会 404。中文分组名会由脚本自动 URL 编码。
+- 配完运行 `yarn swagger`：汇总所有仓库的服务 → 写 `swagger-mcp-server/services.conf` → 打 loader 补丁 → 确保仓库根 `.mcp.json` 的 `swagger-multi` 指向 `scripts/swagger-mcp-launcher.mjs`。服务清单在 MCP 启动时由 launcher 读取，所以**改服务只重跑 `yarn swagger`，不用改 `.mcp.json`、不用重建注册**；已开的 Claude 会话要重启才生效。
+- 每次流水线跑 planning/coding 会用 `node scripts/swagger.mjs <别名>` 生成本仓的 `docs/requirements/<别名>/swagger.md`，Agent 按「**先项目源码 → 缺契约再查本仓 swagger → 仍无写 Q**」的顺序工作。仓库没配 swagger 时该文件写「未配置」，流水线照常继续。
+- 可以用 `yarn swagger:check` 检查配置生成的清单与 loader 补丁是否一致；`yarn swagger --dry-run` 只打印不落盘。
+- `.mcp.json` 是 project scope，只对**从 febot 根目录启动**的会话生效（流水线 runner 的 cwd 就是 febot 根，所以自动可用）；直接在 `gitlab/<仓库>` 里打开 Claude Code 不会加载它。`yarn swagger` 会同时把 `swagger-multi` 加进 `.claude/settings.local.json` 的 `enabledMcpjsonServers`，避免 pipeline 弹批准。想全局可用，可额外跑 `bash swagger-mcp-server/update_global_mcp.sh`。
 
 ## 0.4 准备目标仓
 
@@ -504,7 +519,7 @@ yarn assistant:map <repoRoot>/<仓>
 | 工具                   | 干什么                                                                                                                            | 谁用                   | 怎么跑                                      |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------- |
 | **code-indexer**       | Vue3 仓库静态索引器：扫目标仓生成 ProjectMap（路由/模块/API 域/组件图/告警），CLI 或 stdio MCP 供 Agent 消费                       | 流水线 ②③ + 助手事实层 | `node bin/cli.mjs <cmd> <repo>`             |
-| **swagger-mcp-server** | swagger-multi MCP **补丁版**服务器（修复 URL 解析截断、非法 JSON 两个 bug），按你配的服务清单给 Agent 喂实时 API 文档             | 流水线 ②③ 仅           | 配置写入用户全局 `~/.claude.json`，重启生效 |
+| **swagger-mcp-server** | swagger-multi MCP **补丁版**服务器（修复 URL 解析截断、非法 JSON 两个 bug），按 `febot.config.json` 的 `repositories[].swagger` 给 Agent 喂实时 API 文档 | 流水线 ②③ 仅           | `yarn swagger` 维护项目级 `.mcp.json`（launcher 启动时读 services.conf），重启会话生效 |
 | **Hindsight**          | 本机 Docker 记忆系统（API :8888 / UI :9999），两条主线共用实例、**bank 分开**                                                     | 流水线 + 助手          | 见第四部分 §12–§15                          |
 
 > 现在只有 code-indexer 是**两条线共用**的；索引器属于「只读、纯静态」，谁查都不落盘。

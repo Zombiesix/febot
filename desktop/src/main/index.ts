@@ -535,18 +535,18 @@ function saveSettings(patch: Partial<DesktopSettings>): DesktopSettings {
 }
 
 async function registerSwaggerMcp(): Promise<void> {
-  const script = path.join(settings.workspace, "swagger-mcp-server", "update_global_mcp.sh");
+  const script = path.join(settings.workspace, "scripts", "sync-swagger.mjs");
   if (!fs.existsSync(script)) {
     await dialog.showMessageBox({
       type: "warning",
       title: "配置 Swagger MCP",
-      message: "工作区里没有 swagger-mcp-server/update_global_mcp.sh",
+      message: "工作区里没有 scripts/sync-swagger.mjs",
     });
     return;
   }
   const nodeCmd = fs.existsSync(packagedNodeExe()) ? packagedNodeExe() : "node";
   try {
-    const { stdout } = await execFileAsync("bash", [script], {
+    const { stdout } = await execFileAsync(nodeCmd, [script], {
       cwd: settings.workspace,
       env: { ...process.env, PATH: enrichedPath(), NODE_CMD: nodeCmd },
       windowsHide: true,
@@ -559,10 +559,13 @@ async function registerSwaggerMcp(): Promise<void> {
       detail: stdout.slice(-2000) || "（无输出）",
     });
   } catch (e) {
+    const err = e as { message?: string; stdout?: string; stderr?: string };
+    const detail = [err.stderr, err.stdout].filter(Boolean).join("\n").trim().slice(-4000);
     await dialog.showMessageBox({
       type: "error",
       title: "配置 Swagger MCP 失败",
-      message: e instanceof Error ? e.message : String(e),
+      message: err.message ?? String(e),
+      detail: detail || "（无更多输出）",
     });
   }
 }
