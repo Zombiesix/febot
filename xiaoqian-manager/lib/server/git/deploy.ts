@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertBranch, resolveRepoPath } from "./config";
@@ -29,18 +29,25 @@ const DEFAULT_TIMEOUT = 120_000;
 const COMMIT_TIMEOUT = 300_000; // 提交会跑 husky/lint-staged，慢
 const NET_TIMEOUT = 60_000;
 
-function git(cwd: string, args: string[], opts: GitRunOptions = {}): string {
+const MAX_OUTPUT = 16 * 1024 * 1024;
+
+/**
+ * 异步执行 git（原来是 execFileSync）。
+ *
+ * 为什么必须是异步：提交链路（pull / commit 跑 husky / push / cherry-pick）动辄几十
+ * 秒到几分钟。同步调用会把 Next 进程的事件循环整个堵死，其间 undici 无法处理
+ * runner 连接上已到达的 FIN —— runner 的 keep-alive 只有 5s，等 git 返回后
+ * `submit-code` 末尾的「自动接受」POST 会复用一条已被对端关闭的连接，
+ * 拿到 ECONNRESET 后被误报成「runner 未启动」。改成异步后事件循环不被阻塞，
+ * 连接池能正常淘汰旧连接，提交期间整个 Next 服务也不会卡住。
+ */
+function git(cwd: string, args: string[], opts: GitRunOptions = {}): Promise<string> {
   const { timeout = DEFAULT_TIMEOUT, input } = opts;
   const cmd = `git ${args.join(" ")}`;
-  try {
-    return execFileSync("git", args, {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn("git", args, {
       cwd,
-      encoding: "utf8",
-      timeout,
-      maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,
-      input,
-      stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
         // 凭证过期时快速失败，别把 Next 服务端挂死在一个等输入的进程上
@@ -49,17 +56,51 @@ function git(cwd: string, args: string[], opts: GitRunOptions = {}): string {
         CI: "1",
       },
     });
-  } catch (e) {
-    const err = e as { stderr?: string; stdout?: string; message?: string; killed?: boolean; signal?: string };
-    if (err.killed || err.signal) throw new Error(`${cmd} 超时`);
-    const detail = String(err.stderr || err.stdout || err.message || "").trim().slice(0, 600);
-    throw new Error(`${cmd} 失败：${detail}`);
-  }
+    let stdout = "";
+    let stderr = "";
+    let size = 0;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeout);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_OUTPUT) {
+        child.kill();
+        return;
+      }
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(new Error(`${cmd} 失败：${e.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`${cmd} 超时`));
+        return;
+      }
+      if (code !== 0) {
+        const detail = String(stderr || stdout || `退出码 ${code}`).trim().slice(0, 600);
+        reject(new Error(`${cmd} 失败：${detail}`));
+        return;
+      }
+      resolve(stdout);
+    });
+    // 进程提前退出时写 stdin 可能 EPIPE，错误统一由 close 事件回传
+    child.stdin?.on("error", () => undefined);
+    child.stdin?.end(input ?? "");
+  });
 }
 
-function safeStatus(cwd: string): string {
+async function safeStatus(cwd: string): Promise<string> {
   try {
-    return git(cwd, ["status", "--porcelain"]).trim().slice(0, 300);
+    return (await git(cwd, ["status", "--porcelain"])).trim().slice(0, 300);
   } catch {
     return "";
   }
@@ -118,17 +159,17 @@ export function submitCode(opts: {
   return serializeRepo(cwd, () => deploy(cwd, opts.targetBranch, opts.message));
 }
 
-function deploy(cwd: string, targetBranch: string, message: string): DeployGitResult {
-  const source = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+async function deploy(cwd: string, targetBranch: string, message: string): Promise<DeployGitResult> {
+  const source = (await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   if (!source || source === "HEAD") {
     throw new Error("当前处于分离头指针状态，拒绝提交");
   }
 
   // 工作区此时是脏的：git 2.20 的 --autostash 只对 --rebase 生效，
   // 用 --rebase --autostash 一次完成「暂存改动 → 拉取最新 → 恢复改动」。
-  git(cwd, ["pull", "--rebase", "--autostash"], { timeout: NET_TIMEOUT });
+  await git(cwd, ["pull", "--rebase", "--autostash"], { timeout: NET_TIMEOUT });
 
-  const dirty = git(cwd, ["status", "--porcelain"]).trim();
+  const dirty = (await git(cwd, ["status", "--porcelain"])).trim();
   const dirtyLines = dirty ? dirty.split("\n").length : 0;
   if (dirtyLines > 200) {
     throw new Error(`待提交改动过多（${dirtyLines} 个文件），疑似误提交，已中止`);
@@ -137,55 +178,60 @@ function deploy(cwd: string, targetBranch: string, message: string): DeployGitRe
   let committed = false;
   let commitSha = "";
   if (dirtyLines > 0) {
-    git(cwd, ["add", "-A"]);
-    git(cwd, ["commit", "-F", "-"], { input: message, timeout: COMMIT_TIMEOUT });
-    commitSha = git(cwd, ["rev-parse", "HEAD"]).trim();
+    await git(cwd, ["add", "-A"]);
+    await git(cwd, ["commit", "-F", "-"], { input: message, timeout: COMMIT_TIMEOUT });
+    commitSha = (await git(cwd, ["rev-parse", "HEAD"])).trim();
     committed = true;
   }
 
-  git(cwd, ["push"], { timeout: NET_TIMEOUT });
+  await git(cwd, ["push"], { timeout: NET_TIMEOUT });
   // 工作区本来就干净（改动已被手工提交过）时，提交记录仍指向当前 HEAD
-  if (!commitSha) commitSha = git(cwd, ["rev-parse", "HEAD"]).trim();
+  if (!commitSha) commitSha = (await git(cwd, ["rev-parse", "HEAD"])).trim();
 
   let cherryPicked = false;
   if (committed && targetBranch !== source) {
-    cherryPicked = cherryPickTo(cwd, source, targetBranch, commitSha);
+    cherryPicked = await cherryPickTo(cwd, source, targetBranch, commitSha);
   }
 
   return { source, targetBranch, committed, cherryPicked, commitSha };
 }
 
-function cherryPickTo(cwd: string, source: string, targetBranch: string, commitSha: string): boolean {
-  git(cwd, ["checkout", targetBranch], { timeout: NET_TIMEOUT });
+async function cherryPickTo(
+  cwd: string,
+  source: string,
+  targetBranch: string,
+  commitSha: string
+): Promise<boolean> {
+  await git(cwd, ["checkout", targetBranch], { timeout: NET_TIMEOUT });
   try {
     // 此刻工作区是干净的（改动刚提交完），--ff-only 足够；共享分支上分叉就报错，不重写历史
-    git(cwd, ["pull", "--ff-only"], { timeout: NET_TIMEOUT });
+    await git(cwd, ["pull", "--ff-only"], { timeout: NET_TIMEOUT });
     try {
-      git(cwd, ["cherry-pick", commitSha]);
+      await git(cwd, ["cherry-pick", commitSha]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // 该提交此前已搬过一次：cherry-pick 得到空提交，按「已合并」处理
       if (/nothing to commit|now empty|previous cherry-pick/i.test(msg)) {
         try {
-          git(cwd, ["cherry-pick", "--abort"]);
+          await git(cwd, ["cherry-pick", "--abort"]);
         } catch {
           // 已无进行中的 cherry-pick
         }
         return false;
       }
       try {
-        git(cwd, ["cherry-pick", "--abort"]);
+        await git(cwd, ["cherry-pick", "--abort"]);
       } catch {
         // 忽略 abort 自身的失败
       }
-      const status = safeStatus(cwd);
+      const status = await safeStatus(cwd);
       throw new Error(`cherry-pick 到 ${targetBranch} 失败：${msg}${status ? `；${status}` : ""}`);
     }
-    git(cwd, ["push"], { timeout: NET_TIMEOUT });
+    await git(cwd, ["push"], { timeout: NET_TIMEOUT });
     return true;
   } finally {
     try {
-      git(cwd, ["checkout", source], { timeout: NET_TIMEOUT });
+      await git(cwd, ["checkout", source], { timeout: NET_TIMEOUT });
     } catch {
       // 已在原分支，或 checkout 失败 —— 不再掩盖上面的真实错误
     }

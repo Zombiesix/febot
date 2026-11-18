@@ -19,9 +19,11 @@ export function readRunnerInfo(): RunnerInfo | null {
 }
 
 export class RunnerOfflineError extends Error {
-  constructor() {
+  constructor(detail?: string) {
     super(
-      "runner 未启动（原因：会话、diff 与历史记录都由独立 runner 进程提供，Next 进程不承载 PTY）。" +
+      (detail
+        ? `runner 连接中断（${detail}）：runner.json 存在，但连接被拒绝或重置，进程可能已退出。`
+        : "runner 未启动（原因：会话、diff 与历史记录都由独立 runner 进程提供，Next 进程不承载 PTY）。") +
         "下一步：在项目根目录另开一个终端执行 yarn runner，然后重试。"
     );
     this.name = "RunnerOfflineError";
@@ -46,8 +48,11 @@ export async function runnerFetch<T>(
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
-    throw new RunnerOfflineError();
+  } catch (e) {
+    // 区分「没启动」与「连不上」：ECONNRESET / ECONNREFUSED 等底层错误码带出来，
+    // 否则一律被当成 runner 未启动，排查方向会被带偏。
+    const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+    throw new RunnerOfflineError(cause?.code ?? cause?.message);
   }
   const text = await res.text();
   let payload: unknown = null;
